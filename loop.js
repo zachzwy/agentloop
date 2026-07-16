@@ -12,6 +12,7 @@
 //          a trace log (one JSON file per run with the full message history).
 // Check point and define next phases (traces from phase 6 inform what's next).
 
+import "dotenv/config";
 import OpenAI from "openai";
 import readline from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
@@ -21,17 +22,107 @@ const client = new OpenAI({
   apiKey: process.env.DEEPSEEK_API_KEY,
 });
 
-async function phase1() {
-  const rl = readline.createInterface({ input, output });
+const model = "deepseek-v4-flash";
+
+async function getUserInput() {
+	const rl = readline.createInterface({ input, output });
   const userInput = await rl.question("Enter your question: ");
   rl.close();
 
+	return userInput;
+}
+
+const print = input => console.log(JSON.stringify(input, null, 2));
+
+async function phase1() {
+  const userInput = await getUserInput();
+
   const response = await client.chat.completions.create({
-    model: "deepseek-v4-flash",
+    model,
     messages: [{ role: "user", content: userInput }],
   });
 
-  console.log(response.choices[0].message.content);
+  // console.log(response.choices[0].message.content);
+  print(response);
 }
 
-phase1();
+// phase1();
+
+// One self-defined simple function tool call.
+async function phase2Simple() {
+	const userInput = await getUserInput();
+	
+	// Define a list of callable tools for the model.
+	const tools = [
+		{
+			type: "function",
+			function: {
+				name: "unhelpful_responder",
+				description: "An unhelpful responder that always responds 'I dont know' regardless of the input.",
+				parameters: {
+					type: "object",
+					properties: {
+						input: {
+							type: "string",
+							description: "The input to the unhelpful responder.",
+						},
+					},
+					required: ["input"],
+					additionalProperties: false,
+				},
+				strict: true,
+			},
+		},
+	];
+
+	const unhelpfulResponder = question => `regarding your question ${question}: I don't know.`;
+	
+	const messages = [{ role: "user", content: userInput }];
+
+	// First time calling model with available tools.
+	let response = await client.chat.completions.create({
+		model,
+		messages,
+		tools,
+		tool_choice: "auto",
+	});
+
+	console.log("Model response before tool call: ");
+	print(response);
+
+	// Make sure to amend the model's response before tool call.
+	messages.push(response.choices[0].message);
+
+	let has_toolcall = false;
+
+	for (const toolCall of response.choices[0].message.tool_calls ?? []) {
+		if (toolCall.function.name === "unhelpful_responder") {
+			// Execute the function.
+			const args = JSON.parse(toolCall.function.arguments);
+			const unhelpfulAnswer = unhelpfulResponder(args.input);
+
+			// Provide the function call results to the model
+			messages.push({
+				role: "tool",
+				tool_call_id: toolCall.id,
+				content: JSON.stringify({ unhelpfulAnswer }),
+			});
+
+			has_toolcall = true;
+		}
+	}
+
+	if (has_toolcall) {
+		// Second time calling model with tool call results.
+		response = await client.chat.completions.create({
+			model,
+			messages,
+			tools,
+		});
+
+		console.log("Model response after tool call: ");
+		print(response);
+	}
+}
+
+phase2Simple();
