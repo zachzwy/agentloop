@@ -167,6 +167,7 @@ async function phase2() {
     console.log("\nModel response after tool call: ");
     print(response);
 
+    console.log("\nFinal formatted response: ");
     console.log(response.choices[0].message.content);
   }
 }
