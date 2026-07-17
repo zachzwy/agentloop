@@ -1,7 +1,13 @@
 {
   "type": "module",
+  "scripts": {
+    "format": "node node_modules/prettier/bin/prettier.cjs --write ."
+  },
   "dependencies": {
     "dotenv": "^17.4.2",
     "openai": "^6.47.0"
+  },
+  "devDependencies": {
+    "prettier": "^3.9.5"
   }
 }
