@@ -1,7 +1,9 @@
-import { schema as readFileSchema, impl as readFileImpl } from "./read_file.js";
+import * as readFileMod from "./read_file.js";
+import * as listFilesMod from "./list_files.js";
+import * as writeFileMod from "./write_file.js";
 
-export const tools = [readFileSchema];
-
-export const toolImpls = {
-  read_file: readFileImpl,
-};
+const modules = [readFileMod, listFilesMod, writeFileMod];
+export const tools = modules.map((m) => m.schema);
+export const toolImpls = Object.fromEntries(
+  modules.map((m) => [m.schema.function.name, m.impl]),
+);

@@ -10,6 +10,7 @@
 //          results (not crashes), API retries, runaway context growth.
 // Phase 6: The 20-task harness: ~20 concrete tasks, an unattended runner, and
 //          a trace log (one JSON file per run with the full message history).
+//          Scan tool results for /sk-[A-Za-z0-9]{20,}/-style patterns before writing.
 // Check point and define next phases (traces from phase 6 inform what's next).
 
 import "dotenv/config";
@@ -66,9 +67,9 @@ async function phase1() {
 // Tools are imported from ./tools/index.js
 
 // Maximum tool call iteration.
-const MAX_ITER = 5;
+const MAX_ITER = 10;
 
-// A loop with read_file tool.
+// A loop with a few tools.
 async function phase3() {
   const userInput = await getUserInput();
   const systemPrompt = await loadSystemPrompt();
@@ -78,6 +79,7 @@ async function phase3() {
   ];
 
   let response;
+  const tokenUsages = [];
 
   for (let i = 0; i < MAX_ITER; i++) {
     console.log(`\nIteration ${i}`);
@@ -89,6 +91,15 @@ async function phase3() {
       tools,
       tool_choice: "auto",
     });
+
+    if (response.usage) {
+      tokenUsages.push({
+        iteration: i,
+        promptTokens: response.usage.prompt_tokens,
+        completionTokens: response.usage.completion_tokens,
+        totalTokens: response.usage.total_tokens,
+      });
+    }
 
     console.log(`\nIteration ${i}: model response before tool call: `);
     print(response);
@@ -120,6 +131,8 @@ async function phase3() {
       console.log("\nFinal formatted response: ");
       console.log(response.choices[0].message.content);
 
+      printTokenMetrics(tokenUsages);
+
       // Exit successfully.
       return;
     }
@@ -128,6 +141,30 @@ async function phase3() {
   console.log(
     `\n[abnormal exit] hit MAX_ITER=${MAX_ITER} with the model still requesting tools`,
   );
+
+  // TODO: do one more API run with tool_choice: "none" and flag it with "you've hit the step limit; finish with what you have".
+
+  printTokenMetrics(tokenUsages);
+}
+
+function printTokenMetrics(tokenUsages) {
+  console.log("\n=== Token Usage Metrics ===");
+  let sumPrompt = 0;
+  let sumCompletion = 0;
+  let sumTotal = 0;
+  for (const usage of tokenUsages) {
+    console.log(
+      `Iteration ${usage.iteration}: Prompt: ${usage.promptTokens}, Completion: ${usage.completionTokens}, Total: ${usage.totalTokens}`,
+    );
+    sumPrompt += usage.promptTokens;
+    sumCompletion += usage.completionTokens;
+    sumTotal += usage.totalTokens;
+  }
+  console.log("---------------------------");
+  console.log(
+    `Total:       Prompt: ${sumPrompt}, Completion: ${sumCompletion}, Total: ${sumTotal}`,
+  );
+  console.log("===========================");
 }
 
 phase3();

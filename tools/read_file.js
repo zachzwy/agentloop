@@ -1,4 +1,6 @@
 import { readFile } from "node:fs/promises";
+import path from "node:path";
+import { outsideCwd } from "./guard.js";
 
 export const schema = {
   type: "function",
@@ -22,6 +24,15 @@ export const schema = {
 };
 
 export const impl = async ({ filePath }) => {
+  if (outsideCwd(filePath)) {
+    return `Error: '${filePath}' is outside the working directory. Only paths inside it are allowed.`;
+  }
+
+  const DENY = [".env", ".env.local", ".env.production"];
+  if (DENY.includes(path.basename(filePath))) {
+    return `Error: '${filePath}' contains secrets and cannot be read.`;
+  }
+
   try {
     const content = await readFile(filePath, "utf8");
     // Truncation is a context-management decision.
