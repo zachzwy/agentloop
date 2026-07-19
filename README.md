@@ -18,6 +18,7 @@ Currently implements **Phase 4** (three tools, loop with safety cap) with severa
 ├── .prettierignore
 ├── README.md
 ├── loop.js                  # Main entry point - the agent loop
+├── traces.js                # Trace triage CLI (list / show / note)
 ├── package.json
 ├── prompts/
 │   └── system.md            # System prompt / persona (honesty clause, tool-use guidelines)
@@ -26,6 +27,8 @@ Currently implements **Phase 4** (three tools, loop with safety cap) with severa
 │   ├── guard.js             # Path security: blocks access outside CWD
 │   ├── read_file.js         # Read a UTF-8 file (with .env denial)
 │   ├── list_files.js        # List directory contents
+│   ├── run_command.js       # Run a shell command with user confirmation
+│   ├── run_command.test.js  # Unit tests for run_command
 │   └── write_file.js        # Write/create files (creates dirs automatically)
 ├── traces/                  # JSON trace logs from agent runs
 │   ├── *.json               # Auto-named traces (ISO timestamp)
@@ -44,11 +47,12 @@ Currently implements **Phase 4** (three tools, loop with safety cap) with severa
 
 ## Tools
 
-| Tool         | Description                                   | Security                                                                             |
-| ------------ | --------------------------------------------- | ------------------------------------------------------------------------------------ |
-| `read_file`  | Read a UTF-8 text file                        | Path-guarded; blocks `.env`, `.env.local`, `.env.production`; truncates at 50K chars |
-| `list_files` | List files/directories in a path              | Path-guarded; friendly errors for missing dirs                                       |
-| `write_file` | Write content to a file (creates parent dirs) | Path-guarded                                                                         |
+| Tool          | Description                                   | Security                                                                             |
+| ------------- | --------------------------------------------- | ------------------------------------------------------------------------------------ |
+| `read_file`   | Read a UTF-8 text file                        | Path-guarded; blocks `.env`, `.env.local`, `.env.production`; truncates at 50K chars |
+| `list_files`  | List files/directories in a path              | Path-guarded; friendly errors for missing dirs                                       |
+| `write_file`  | Write content to a file (creates parent dirs) | Path-guarded                                                                         |
+| `run_command` | Run a shell command with user confirmation    | Asks for user approval before executing; 60-second timeout                           |
 
 All tools return errors as strings (never throw) so the agent can gracefully handle failures.
 
@@ -85,6 +89,7 @@ After each successful run, the loop prints per-iteration and total token usage (
 
 - **Path guardrail**: All tools reject paths outside the working directory (`outsideCwd` check in `tools/guard.js`)
 - **Sensitive file denial**: `read_file` explicitly blocks `.env`, `.env.local`, `.env.production`
+- **Command approval**: `run_command` asks for user confirmation before executing any shell command
 - **Secret redaction**: Trace logs automatically redact `sk-...` API key patterns before writing to disk
 
 ## Getting Started
@@ -117,14 +122,73 @@ Enter your question: what files are in the current directory?
 
 It will use its tools to explore, then provide an answer.
 
+### Running Tests
+
+Unit tests use Node's built-in test runner. To run the tests for `run_command`:
+
+```bash
+node --experimental-test-module-mocks --test tools/run_command.test.js
+```
+
+The `--experimental-test-module-mocks` flag enables module mocking (used by the tests to simulate user input and command execution without actually running commands).
+
+## Traces
+
+Every run saves a JSON trace to `traces/`, named by ISO timestamp. Each trace holds the full message history plus top-level summary fields so a run can be scanned without reading the whole conversation:
+
+| Field                                              | Meaning                                                               |
+| -------------------------------------------------- | --------------------------------------------------------------------- |
+| `task`                                             | The user's request                                                    |
+| `outcome`                                          | How the **loop** ended: `success` or `max_iter_exhausted`             |
+| `taskSucceeded`                                    | Whether the **task** actually succeeded — set by hand during triage   |
+| `tags`, `notes`                                    | Failure categories and free-text findings — set by hand during triage |
+| `model`, `maxIter`, `gitSha`, `savedAt`            | Provenance: which harness version produced this run                   |
+| `iterations`, `promptTokensFinal`, `apiMsTotal`, … | Rolled-up metrics                                                     |
+
+`outcome` and `taskSucceeded` are deliberately separate: a run can end abnormally while the task actually succeeded (or end cleanly with a wrong answer). Filenames never change — annotations go **inside** the file.
+
+### Trace Triage CLI
+
+```bash
+node traces.js list                          # scan every run
+node traces.js list --tag runtime-probing    # filter to one failure category
+node traces.js list --untagged               # the triage backlog
+node traces.js show 2026-07-19T13-46         # metadata + collapsed conversation
+```
+
+Annotate a run after reading it (trace IDs are filename prefixes — any unambiguous prefix works):
+
+```bash
+node traces.js note 2026-07-19T13-46 \
+  --tag runtime-probing --tag false-abnormal-exit \
+  --ok \
+  --note "Tests passed 16/16; harness reported failure because MAX_ITER hit on the same iteration."
+```
+
+| Flag              | Effect                                       |
+| ----------------- | -------------------------------------------- |
+| `--tag <name>`    | Add a failure category (repeatable, deduped) |
+| `--note "<text>"` | Set the free-text note                       |
+| `--ok` / `--fail` | Set `taskSucceeded` to `true` / `false`      |
+
+Listing shows both outcomes side by side, so discrepancies are visible at a glance:
+
+```
+2026-07-19T13-46  ABN task:ok   20it  16k  create a unit test for tools/run_command.js  [runtime-probing, …]
+                    ↳ Tests passed 16/16; harness reported failure because MAX_ITER hit …
+```
+
+Tags are the raw material for a failure taxonomy: start loose, and let the vocabulary that recurs become the categories worth measuring.
+
 ## Lessons Learned (from traces)
 
 The `traces/` directory contains real run logs that document failure modes found during development:
 
 - **Confident fabrication** (trace-hallucinated-empty-dir.json): An early version had only `read_file` (no `list_files`). When the model tried to read the directory (EISDIR error), it guessed common filenames from training priors, found nothing, and confidently concluded the directory was empty.
 - **Iteration budget exhaustion** (trace-readme-task-iter-budget-exhausted.json): With MAX_ITER=5, the model spent all iterations exploring the codebase (reading every file) and ran out of steps before writing the README. The model also read `.env` unprompted, leaking the API key into the trace.
+- **False abnormal exit** (2026-07-19T13-46, tagged `false-abnormal-exit`): The agent wrote a 16-test suite for `run_command` and got it green — but the cap was reached on the same iteration that ran the tests, so the model never summarized and the harness reported `max_iter_exhausted`. A completed task looked like a failure. Same trace, tagged `runtime-probing`: after hitting `TypeError: mock.module is not a function`, the model spent seven iterations inspecting Node internals before trying `node --help | grep -i mock`, which found the flag immediately.
 
-These traces informed the fixes now in place: `list_files` tool, `MAX_ITER` raised to 20, `.env` denial in `read_file`, and the system prompt honesty clause.
+These traces informed the fixes now in place: `list_files` tool, `MAX_ITER` raised to 20, `.env` denial in `read_file`, and the system prompt honesty clause. Still open: a graceful landing on cap exhaustion (one final call with `tool_choice: "none"` so partial work is summarized rather than discarded).
 
 ## Dependencies
 

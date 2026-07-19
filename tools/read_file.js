@@ -7,7 +7,7 @@ export const schema = {
   function: {
     name: "read_file",
     description:
-      "Read a UTF-8 text file and return its contents. Cannot list directories",
+      "Read a UTF-8 text file and return its contents. Cannot list directories.",
     parameters: {
       type: "object",
       properties: {
@@ -52,7 +52,7 @@ export const impl = async ({ filePath }) => {
       case "EACCES":
         return `Error: permission denied reading '${filePath}'.`;
       default:
-        return `Error: ${err.message}`; // always keep the raw fallback
+        return `Error: ${err.message}`; // Always keep the raw fallback.
     }
   }
 };

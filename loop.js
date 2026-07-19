@@ -36,7 +36,7 @@ const model = "deepseek-v4-flash";
 const MAX_ITER = 20;
 
 // ---------------------------------------------------------------------------
-// Main loop
+// Main loop.
 // ---------------------------------------------------------------------------
 
 async function phase3() {
@@ -51,9 +51,9 @@ async function phase3() {
   const iterationStats = [];
 
   for (let i = 0; i < MAX_ITER; i++) {
-    console.log(`\nIteration ${i}`);
+    console.log(`\nIteration ${i + 1}\n`);
 
-    // 1. Call model
+    // 1. Call model.
     const t0 = Date.now();
     const response = await client.chat.completions.create({
       model,
@@ -77,22 +77,27 @@ async function phase3() {
       console.log(`assistant: ${preview(content)}`);
     }
 
-    // 2. Append model message to conversation
+    // 2. Append model message to conversation.
     messages.push(message);
 
-    // 3. If no tool calls → we're done
+    // 3. If no tool calls → we're done.
     if (toolCalls.length === 0) {
-      console.log("\nFinal formatted response:");
+      console.log("\nFinal formatted response:\n");
       console.log(content);
 
-      await saveTrace(messages, iterationStats, "success");
+      await saveTrace(messages, iterationStats, "success", {
+        model,
+        maxIter: MAX_ITER,
+      });
       printRunMetrics(iterationStats);
       return;
     }
 
-    // 4. Execute each tool call and push results back
+    // 4. Execute each tool call and push results back.
     for (const toolCall of toolCalls) {
-      console.log(`  -> ${toolCall.function.name} ${toolCall.function.arguments}`);
+      console.log(
+        `  -> ${toolCall.function.name} ${toolCall.function.arguments}`,
+      );
 
       const result = await executeToolCall(toolCall);
       console.log(`  <- ${formatToolResult(result)}`);
@@ -105,12 +110,15 @@ async function phase3() {
     }
   }
 
-  // Max iterations exhausted
+  // Max iterations exhausted.
   console.log(
     `\n[abnormal exit] hit MAX_ITER=${MAX_ITER} with the model still requesting tools`,
   );
 
-  await saveTrace(messages, iterationStats, "max_iter_exhausted");
+  await saveTrace(messages, iterationStats, "max_iter_exhausted", {
+    model,
+    maxIter: MAX_ITER,
+  });
   printRunMetrics(iterationStats);
 }
 
