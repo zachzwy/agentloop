@@ -1,5 +1,11 @@
-export const preview = (s, n = 200) =>
-  s.length <= n ? s : s.slice(0, n) + `... [${s.length} chars total]`;
+// Coerce first: a tool that returns a non-string (or undefined) must not crash
+// the loop at the log line, after the API call has already been paid for.
+export const preview = (s, n = 200) => {
+  const str = String(s ?? "");
+  return str.length <= n
+    ? str
+    : str.slice(0, n) + `... [${str.length} chars total]`;
+};
 
 export function printRunMetrics(iterationStats) {
   console.log("\n=== Run Metrics ===");

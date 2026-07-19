@@ -6,7 +6,7 @@ A minimal, phased learning project that builds an LLM-powered coding assistant w
 
 This project started as a simple Q&A agent (Phase 1) and has evolved through incremental phases into a tool-using coding assistant. It's designed to explore the full tool-calling protocol: schema definitions, round-trip message handling, iteration budgets, error resilience, and trace logging.
 
-Currently implements **Phase 4** (three tools, loop with safety cap) with several robustness features from Phase 5 (tool exceptions as strings, context truncation) and Phase 6 (trace logging, secret redaction) already in place.
+**Phase 4 is complete**: four tools (`read_file`, `list_files`, `write_file`, `run_command`) driving a loop with a safety cap — the agent can now read code, write it, and run commands to verify its own work. Several Phase 5 features (tool exceptions as strings, context truncation, graceful landing on cap exhaustion) and Phase 6 features (trace logging, secret redaction, trace triage CLI) are already in place.
 
 ## Architecture
 
@@ -64,7 +64,9 @@ The main loop in `loop.js` (function `phase3`):
 2. Calls the LLM with available tools (`tool_choice: "auto"`)
 3. If the model calls tools → executes them → feeds results back → repeats
 4. If the model replies with plain text → prints the answer and exits
-5. If `MAX_ITER` (currently **20**) is reached → exits with an abnormal-termination message
+5. If `MAX_ITER` (currently **20**) is reached → makes one final call with `tool_choice: "none"` so the model summarizes what it accomplished and what remains, then exits with an abnormal-termination message
+
+The cap is a **fuse against runaway loops, not a task budget** — it should sit well above any legitimate workload. The graceful landing exists because a run once hit the cap on the same iteration that finished the task, so a success was reported as a failure (see Lessons Learned).
 
 ### Token Metrics
 
@@ -77,13 +79,15 @@ After each successful run, the loop prints per-iteration and total token usage (
 | **1** | Single-round Q&A, no tools                                              | ✅ Done    |
 | **2** | One tool (read_file), one round-trip                                    | ✅ Done    |
 | **3** | Full loop with MAX_ITER cap, model decides when done                    | ✅ Done    |
-| **4** | Three tools (read_file, list_files, write_file)                         | ✅ Done    |
+| **4** | Four tools (read_file, list_files, write_file, run_command)             | ✅ Done    |
 | **5** | Robustness: tool exceptions as strings, API retries, context management | 📋 Partial |
 | **6** | 20-task harness, unattended runner, trace logging, secret redaction     | 📋 Partial |
 
-**Phase 5 status**: Tool exceptions returned as strings ✅. Context management (50K char truncation) ✅. API retries — not yet implemented.
+**Phase 4 done when**: the agent could write code and run commands to verify it. Demonstrated by a run where it wrote a 16-test suite for `run_command`, discovered Node's `--experimental-test-module-mocks` flag on its own, and got the suite passing (trace `2026-07-19T13-46`).
 
-**Phase 6 status**: Trace logging ✅ (each run saves a JSON trace). Secret redaction ✅ (auto-redacts `sk-...` patterns before writing). 20-task harness and unattended runner — not yet implemented.
+**Phase 5 status**: Tool exceptions returned as strings ✅. Context management (50K char truncation) ✅. Tool results coerced to strings at the dispatch boundary ✅. Graceful landing on cap exhaustion ✅. API retries — not yet implemented.
+
+**Phase 6 status**: Trace logging ✅ (each run saves a JSON trace). Secret redaction ✅ (auto-redacts `sk-...` patterns before writing). Trace triage CLI ✅. 20-task harness and unattended runner — not yet implemented. **Blocker**: `run_command` asks for interactive approval, which will hang an unattended run — needs an auto-approve policy first.
 
 ## Security
 

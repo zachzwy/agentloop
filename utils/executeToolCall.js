@@ -13,5 +13,7 @@ export async function executeToolCall(toolCall) {
     return `Error: unknown tool "${toolCall.function.name}"`;
   }
 
-  return await toolImpl(args);
+  // The API requires tool result `content` to be a string, so guarantee one
+  // here rather than trusting every tool to remember.
+  return String((await toolImpl(args)) ?? "");
 }

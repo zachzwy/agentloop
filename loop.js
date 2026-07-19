@@ -4,7 +4,7 @@
 // [done] Phase 3: The loop. Continue while the model calls tools; stop when it replies
 //          with plain text. Add a max-iteration safety cap. The model decides
 //          when it's done — no external exit criteria.
-// Phase 4: More tools -> coding assistant: write_file, list_files, run_command.
+// [done] Phase 4: More tools -> coding assistant: write_file, list_files, run_command.
 //          Same loop, different tools and system prompt.
 // Phase 5: Robustness for unattended runs: tool exceptions returned as tool
 //          results (not crashes), API retries, runaway context growth.
@@ -39,7 +39,7 @@ const MAX_ITER = 20;
 // Main loop.
 // ---------------------------------------------------------------------------
 
-async function phase3() {
+async function loop() {
   const userInput = await getUserInput();
   const systemPrompt = await loadSystemPrompt();
 
@@ -110,10 +110,42 @@ async function phase3() {
     }
   }
 
-  // Max iterations exhausted.
+  // Max iterations exhausted. Land gracefully: give the model one last turn
+  // with tools disabled so it summarizes what it accomplished, instead of
+  // discarding the work. Without this a finished task can look like a failure.
   console.log(
     `\n[abnormal exit] hit MAX_ITER=${MAX_ITER} with the model still requesting tools`,
   );
+
+  messages.push({
+    role: "user",
+    content:
+      "You have reached the step limit and cannot call any more tools. " +
+      "Summarize what you accomplished, what remains unfinished, and the exact next step.",
+  });
+
+  const t0 = Date.now();
+  const response = await client.chat.completions.create({
+    model,
+    messages,
+    tool_choice: "none",
+  });
+
+  const { message } = response.choices[0];
+
+  iterationStats.push({
+    iteration: MAX_ITER,
+    finishReason: response.choices[0].finish_reason,
+    apiMs: Date.now() - t0,
+    promptTokens: response.usage?.prompt_tokens ?? 0,
+    completionTokens: response.usage?.completion_tokens ?? 0,
+    totalTokens: response.usage?.total_tokens ?? 0,
+  });
+
+  messages.push(message);
+
+  console.log("\nFinal summary (step limit reached):\n");
+  console.log(message.content);
 
   await saveTrace(messages, iterationStats, "max_iter_exhausted", {
     model,
@@ -122,4 +154,4 @@ async function phase3() {
   printRunMetrics(iterationStats);
 }
 
-phase3();
+loop();
