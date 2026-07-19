@@ -1,3 +1,4 @@
 .env
 .antigravitycli
 node_modules
+traces/*.json

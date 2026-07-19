@@ -15,13 +15,17 @@
 
 import "dotenv/config";
 import OpenAI from "openai";
-import readline from "node:readline/promises";
-import path from "node:path";
-import { readFile } from "node:fs/promises";
-import { fileURLToPath } from "node:url";
-import { stdin as input, stdout as output } from "node:process";
-
-import { tools, toolImpls } from "./tools/index.js";
+import { tools } from "./tools/index.js";
+import {
+  loadSystemPrompt,
+  getUserInput,
+  preview,
+  saveTrace,
+  printRunMetrics,
+  parseToolArgs,
+  formatToolResult,
+  executeToolCall,
+} from "./utils/index.js";
 
 const client = new OpenAI({
   baseURL: "https://api.deepseek.com",
@@ -29,142 +33,85 @@ const client = new OpenAI({
 });
 
 const model = "deepseek-v4-flash";
+const MAX_ITER = 20;
 
-const systemPromptPath = path.join(
-  path.dirname(fileURLToPath(import.meta.url)),
-  "prompts",
-  "system.md",
-);
+// ---------------------------------------------------------------------------
+// Main loop
+// ---------------------------------------------------------------------------
 
-async function loadSystemPrompt() {
-  return (await readFile(systemPromptPath, "utf8")).trim();
-}
-
-async function getUserInput() {
-  const rl = readline.createInterface({ input, output });
-  const userInput = await rl.question("Enter your question: ");
-  rl.close();
-
-  return userInput;
-}
-
-const print = (input) => console.log(JSON.stringify(input, null, 2));
-
-async function phase1() {
-  const userInput = await getUserInput();
-
-  const response = await client.chat.completions.create({
-    model,
-    messages: [{ role: "user", content: userInput }],
-  });
-
-  // console.log(response.choices[0].message.content);
-  print(response);
-}
-
-// phase1();
-
-// Tools are imported from ./tools/index.js
-
-// Maximum tool call iteration.
-const MAX_ITER = 10;
-
-// A loop with a few tools.
 async function phase3() {
   const userInput = await getUserInput();
   const systemPrompt = await loadSystemPrompt();
+
   const messages = [
     { role: "system", content: systemPrompt },
     { role: "user", content: userInput },
   ];
 
-  let response;
-  const tokenUsages = [];
+  const iterationStats = [];
 
   for (let i = 0; i < MAX_ITER; i++) {
     console.log(`\nIteration ${i}`);
 
-    // Call model with available tools.
-    response = await client.chat.completions.create({
+    // 1. Call model
+    const t0 = Date.now();
+    const response = await client.chat.completions.create({
       model,
       messages,
       tools,
-      tool_choice: "auto",
     });
 
-    if (response.usage) {
-      tokenUsages.push({
-        iteration: i,
-        promptTokens: response.usage.prompt_tokens,
-        completionTokens: response.usage.completion_tokens,
-        totalTokens: response.usage.total_tokens,
-      });
+    const { message } = response.choices[0];
+    const { tool_calls: toolCalls = [], content } = message;
+
+    iterationStats.push({
+      iteration: i,
+      finishReason: response.choices[0].finish_reason,
+      apiMs: Date.now() - t0,
+      promptTokens: response.usage?.prompt_tokens ?? 0,
+      completionTokens: response.usage?.completion_tokens ?? 0,
+      totalTokens: response.usage?.total_tokens ?? 0,
+    });
+
+    if (content) {
+      console.log(`assistant: ${preview(content)}`);
     }
 
-    console.log(`\nIteration ${i}: model response before tool call: `);
-    print(response);
+    // 2. Append model message to conversation
+    messages.push(message);
 
-    // Make sure to amend the model's response before tool call.
-    messages.push(response.choices[0].message);
+    // 3. If no tool calls → we're done
+    if (toolCalls.length === 0) {
+      console.log("\nFinal formatted response:");
+      console.log(content);
 
-    const toolCalls = response.choices[0].message.tool_calls ?? [];
+      await saveTrace(messages, iterationStats, "success");
+      printRunMetrics(iterationStats);
+      return;
+    }
+
+    // 4. Execute each tool call and push results back
     for (const toolCall of toolCalls) {
-      const args = JSON.parse(toolCall.function.arguments);
-      const toolImpl = toolImpls[toolCall.function.name];
+      console.log(`  -> ${toolCall.function.name} ${toolCall.function.arguments}`);
 
-      // Execute the function.
-      const toolRes =
-        toolImpl === undefined ? "Error: unknown tool" : await toolImpl(args);
+      const result = await executeToolCall(toolCall);
+      console.log(`  <- ${formatToolResult(result)}`);
 
-      // Provide the function call results to the model.
       messages.push({
         role: "tool",
         tool_call_id: toolCall.id,
-        content: toolRes,
+        content: result,
       });
-    }
-
-    if (toolCalls.length) {
-      console.log("\nMsg sent to model after tool call: ");
-      print(messages);
-    } else {
-      console.log("\nFinal formatted response: ");
-      console.log(response.choices[0].message.content);
-
-      printTokenMetrics(tokenUsages);
-
-      // Exit successfully.
-      return;
     }
   }
 
+  // Max iterations exhausted
   console.log(
     `\n[abnormal exit] hit MAX_ITER=${MAX_ITER} with the model still requesting tools`,
   );
 
-  // TODO: do one more API run with tool_choice: "none" and flag it with "you've hit the step limit; finish with what you have".
-
-  printTokenMetrics(tokenUsages);
-}
-
-function printTokenMetrics(tokenUsages) {
-  console.log("\n=== Token Usage Metrics ===");
-  let sumPrompt = 0;
-  let sumCompletion = 0;
-  let sumTotal = 0;
-  for (const usage of tokenUsages) {
-    console.log(
-      `Iteration ${usage.iteration}: Prompt: ${usage.promptTokens}, Completion: ${usage.completionTokens}, Total: ${usage.totalTokens}`,
-    );
-    sumPrompt += usage.promptTokens;
-    sumCompletion += usage.completionTokens;
-    sumTotal += usage.totalTokens;
-  }
-  console.log("---------------------------");
-  console.log(
-    `Total:       Prompt: ${sumPrompt}, Completion: ${sumCompletion}, Total: ${sumTotal}`,
-  );
-  console.log("===========================");
+  await saveTrace(messages, iterationStats, "max_iter_exhausted");
+  printRunMetrics(iterationStats);
 }
 
 phase3();
