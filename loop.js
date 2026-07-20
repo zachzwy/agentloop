@@ -13,6 +13,7 @@
 //          Scan tool results for /sk-[A-Za-z0-9]{20,}/-style patterns before writing.
 // Check point and define next phases (traces from phase 6 inform what's next).
 
+import { readFile } from "node:fs/promises";
 import "dotenv/config";
 import OpenAI from "openai";
 import { tools } from "./tools/index.js";
@@ -41,7 +42,9 @@ const MAX_ITER = 20;
 
 async function loop() {
   const userInput = await getUserInput();
-  const systemPrompt = await loadSystemPrompt();
+  let systemPrompt = await loadSystemPrompt();
+  const agentsMd = await readFile("AGENTS.md", "utf8").catch(() => null);
+  if (agentsMd) systemPrompt += `\n\n## Project notes\n${agentsMd}`;
 
   const messages = [
     { role: "system", content: systemPrompt },

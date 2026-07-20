@@ -8,6 +8,8 @@ This project started as a simple Q&A agent (Phase 1) and has evolved through inc
 
 **Phase 4 is complete**: four tools (`read_file`, `list_files`, `write_file`, `run_command`) driving a loop with a safety cap — the agent can now read code, write it, and run commands to verify its own work. Several Phase 5 features (tool exceptions as strings, context truncation, graceful landing on cap exhaustion) and Phase 6 features (trace logging, secret redaction, trace triage CLI) are already in place.
 
+Agent/dev conventions: see AGENTS.md.
+
 ## Architecture
 
 ```
