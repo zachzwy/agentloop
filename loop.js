@@ -116,7 +116,7 @@ export async function loop() {
       );
 
       const result = await executeToolCall(toolCall);
-      console.log(`  <- ${formatToolResult(result)}`);
+      // console.log(`  <- ${formatToolResult(result)}`);
 
       messages.push({
         role: "tool",
