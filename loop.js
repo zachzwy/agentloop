@@ -4,7 +4,7 @@
 // [done] Phase 3: The loop. Continue while the model calls tools; stop when it replies
 //          with plain text. Add a max-iteration safety cap. The model decides
 //          when it's done — no external exit criteria.
-// [done] Phase 4: More tools -> coding assistant: write_file, list_files, run_command.
+// [done] Phase 4: More tools -> coding assistant: read_file, list_files, write_file, run_command.
 //          Same loop, different tools and system prompt.
 // Phase 5: Robustness for unattended runs: tool exceptions returned as tool
 //          results (not crashes), API retries, runaway context growth.
@@ -14,6 +14,7 @@
 // Check point and define next phases (traces from phase 6 inform what's next).
 
 import { readFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
 import "dotenv/config";
 import OpenAI from "openai";
 import { tools } from "./tools/index.js";
@@ -40,7 +41,7 @@ const MAX_ITER = 20;
 // Main loop.
 // ---------------------------------------------------------------------------
 
-async function loop() {
+export async function loop() {
   const userInput = await getUserInput();
   let systemPrompt = await loadSystemPrompt();
   const agentsMd = await readFile("AGENTS.md", "utf8").catch(() => null);
@@ -157,4 +158,9 @@ async function loop() {
   printRunMetrics(iterationStats);
 }
 
-loop();
+// Only auto-run when executed directly, not when imported in tests.
+const isMain =
+  process.argv[1] &&
+  fileURLToPath(import.meta.url) ===
+    fileURLToPath(new URL(process.argv[1], "file://"));
+if (isMain) loop();
