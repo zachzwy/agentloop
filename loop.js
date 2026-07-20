@@ -6,7 +6,7 @@
 //          when it's done — no external exit criteria.
 // [done] Phase 4: More tools -> coding assistant: read_file, list_files, write_file, run_command.
 //          Same loop, different tools and system prompt.
-// Phase 5: Robustness for unattended runs: tool exceptions returned as tool
+// [done] Phase 5: Robustness for unattended runs: tool exceptions returned as tool
 //          results (not crashes), API retries, runaway context growth.
 // Phase 6: The 20-task harness: ~20 concrete tasks, an unattended runner, and
 //          a trace log (one JSON file per run with the full message history).
@@ -27,6 +27,8 @@ import {
   parseToolArgs,
   formatToolResult,
   executeToolCall,
+  callWithRetry,
+  gitChanges,
 } from "./utils/index.js";
 
 const client = new OpenAI({
@@ -54,16 +56,24 @@ export async function loop() {
 
   const iterationStats = [];
 
+  // Snapshot the working tree before the run. Compared against the state at
+  // save time, this is independent evidence of what the agent actually changed
+  // on disk — the model's summary is a claim; this is the receipt.
+  const gitChangesBefore = gitChanges();
+
   for (let i = 0; i < MAX_ITER; i++) {
     console.log(`\nIteration ${i + 1}\n`);
 
-    // 1. Call model.
+    // 1. Call model (with retries).
     const t0 = Date.now();
-    const response = await client.chat.completions.create({
-      model,
-      messages,
-      tools,
-    });
+    const response = await callWithRetry(
+      {
+        model,
+        messages,
+        tools,
+      },
+      client,
+    );
 
     const { message } = response.choices[0];
     const { tool_calls: toolCalls = [], content } = message;
@@ -92,6 +102,7 @@ export async function loop() {
       await saveTrace(messages, iterationStats, "success", {
         model,
         maxIter: MAX_ITER,
+        gitChangesBefore,
       });
       printRunMetrics(iterationStats);
       return;
@@ -129,11 +140,14 @@ export async function loop() {
   });
 
   const t0 = Date.now();
-  const response = await client.chat.completions.create({
-    model,
-    messages,
-    tool_choice: "none",
-  });
+  const response = await callWithRetry(
+    {
+      model,
+      messages,
+      tool_choice: "none",
+    },
+    client,
+  );
 
   const { message } = response.choices[0];
 
@@ -154,6 +168,7 @@ export async function loop() {
   await saveTrace(messages, iterationStats, "max_iter_exhausted", {
     model,
     maxIter: MAX_ITER,
+    gitChangesBefore,
   });
   printRunMetrics(iterationStats);
 }

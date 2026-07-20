@@ -129,6 +129,11 @@ mock.module("./utils/index.js", {
     executeToolCall: async (toolCall) => {
       return mockToolResult;
     },
+    callWithRetry: async (createParams, client) => {
+      return await client.chat.completions.create(createParams);
+    },
+    // Disk-state receipt: stubbed so tests never shell out to git.
+    gitChanges: () => [],
   },
 });
 

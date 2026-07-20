@@ -129,6 +129,23 @@ function show(trace) {
     `metrics:  ${dash(s.iterations)} iterations, ${dash(s.promptTokensFinal)} final prompt tokens, ` +
       `${dash(d.completionTokensTotal)} completion tokens, ${Math.round((d.apiMsTotal ?? 0) / 1000)}s API time`,
   );
+  // Independent of anything the model claimed: what changed on disk.
+  const before = new Set(
+    (d.gitChangesBefore ?? []).map((c) => c.status + c.path),
+  );
+  const after = d.gitChangesAfter;
+  if (after === null || after === undefined) {
+    console.log(`disk:     (not recorded)`);
+  } else if (after.length === 0) {
+    console.log(`disk:     clean — the run changed nothing`);
+  } else {
+    const marks = after.map(
+      (c) =>
+        `${c.status} ${c.path}${before.has(c.status + c.path) ? "" : "  <- new this run"}`,
+    );
+    console.log(`disk:     ${marks.join("\n          ")}`);
+  }
+
   console.log("\n--- conversation ---");
   for (const m of d.messages ?? []) {
     if (m.role === "system") continue;

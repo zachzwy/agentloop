@@ -1,17 +1,42 @@
 import { writeFile } from "node:fs/promises";
 import { execSync } from "node:child_process";
 
-/** Best-effort git SHA so a trace records which harness version produced it. */
-function gitSha() {
+/**
+ * Run a git command, returning raw stdout or null if git isn't usable.
+ * Deliberately NOT trimmed: `status --porcelain` encodes meaning in the two
+ * leading status columns, so a blanket trim() eats the first line's leading
+ * space and corrupts its path.
+ */
+function git(args) {
   try {
-    return execSync("git rev-parse --short HEAD", {
+    return execSync(`git ${args}`, {
       stdio: ["ignore", "pipe", "ignore"],
-    })
-      .toString()
-      .trim();
+    }).toString();
   } catch {
     return null;
   }
+}
+
+/** Best-effort git SHA so a trace records which harness version produced it. */
+const gitSha = () => git("rev-parse --short HEAD")?.trim() ?? null;
+
+/**
+ * Ground truth for what changed on disk, independent of what the model says it
+ * did. A summary is a claim; this is the receipt. Parsed into structured
+ * entries so it can be counted and diffed later.
+ *
+ * Status codes: M modified, A added, D deleted, R renamed, ?? untracked.
+ */
+export function gitChanges() {
+  const out = git("status --porcelain");
+  if (out === null) return null; // not a repo / git unavailable
+  return out
+    .split("\n")
+    .filter(Boolean) // trailing newline; empty array == clean tree
+    .map((line) => ({
+      status: line.slice(0, 2).trim(),
+      path: line.slice(3),
+    }));
 }
 
 /**
@@ -31,6 +56,8 @@ export async function saveTrace(messages, iterationStats, outcome, meta = {}) {
     model: meta.model ?? null,
     maxIter: meta.maxIter ?? null,
     gitSha: gitSha(),
+    gitChangesBefore: meta.gitChangesBefore ?? null, // dirty state at start
+    gitChangesAfter: gitChanges(), // what the disk says now
     savedAt: new Date().toISOString(),
 
     // --- metrics ---
