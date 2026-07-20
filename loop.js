@@ -43,6 +43,12 @@ const client = new OpenAI({
 const model = "deepseek-v4-flash";
 const MAX_ITER = 20;
 
+// Context-limit guard.
+// The LLM's context length is 1M tokens. We apply a 0.7 safety factor so the
+// guard trips at 700K prompt tokens, leaving headroom for the response.
+const CONTEXT_LIMIT = 1_000_000;
+const PROMPT_LIMIT = Math.floor(CONTEXT_LIMIT * 0.7); // 700 000
+
 // ---------------------------------------------------------------------------
 // Main loop.
 // ---------------------------------------------------------------------------
@@ -60,6 +66,13 @@ export async function loop() {
 
   const iterationStats = [];
 
+  // Tracks the actual prompt_tokens from the most recent API response.
+  // Used in the context-limit guard: since messages only grow, the next
+  // iteration's prompt will be at least as large as the previous one.
+  // Initialised to 0 so the guard naturally skips on the first iteration
+  // (no prior response data yet).
+  let lastPromptTokens = 0;
+
   // Snapshot the working tree before the run. Compared against the state at
   // save time, this is independent evidence of what the agent actually changed
   // on disk — the model's summary is a claim; this is the receipt.
@@ -67,6 +80,63 @@ export async function loop() {
 
   for (let i = 0; i < MAX_ITER; i++) {
     console.log(`\nIteration ${i + 1}\n`);
+
+    // --- Context-limit guard ---
+    // Uses the actual prompt_tokens returned by the model from the previous
+    // call — more accurate than a byte-length heuristic. Since messages only
+    // grow, this is a conservative lower bound for the upcoming call.
+    // On the first iteration (i === 0) lastPromptTokens is 0, so the check
+    // is naturally skipped (no prior API data yet).
+    if (lastPromptTokens > PROMPT_LIMIT) {
+      console.warn(
+        `\n[context limit] Previous prompt was ${lastPromptTokens} tokens ` +
+          `(limit ${PROMPT_LIMIT}). Asking model for a final summary.\n`,
+      );
+
+      // Give the model one last turn with tools disabled so it summarises what
+      // it accomplished, instead of discarding the work mid-step.
+      messages.push({
+        role: "user",
+        content:
+          "You have exceeded the context limit and cannot call any more tools. " +
+          "Summarize what you accomplished, what remains unfinished, and the exact next step.",
+      });
+
+      const t0 = Date.now();
+      const response = await callWithRetry(
+        {
+          model,
+          messages,
+          tool_choice: "none",
+        },
+        client,
+      );
+
+      const { message } = response.choices[0];
+
+      iterationStats.push({
+        iteration: i,
+        finishReason: response.choices[0].finish_reason,
+        apiMs: Date.now() - t0,
+        promptTokens: response.usage?.prompt_tokens ?? 0,
+        completionTokens: response.usage?.completion_tokens ?? 0,
+        totalTokens: response.usage?.total_tokens ?? 0,
+        reasoning: message.reasoning_content ?? null,
+      });
+
+      messages.push(cleanAssistantMessage(message));
+
+      console.log("\nFinal summary (context limit reached):\n");
+      console.log(message.content);
+
+      await saveTrace(messages, iterationStats, "context_limit_exceeded", {
+        model,
+        maxIter: MAX_ITER,
+        gitChangesBefore,
+      });
+      printRunMetrics(iterationStats);
+      return;
+    }
 
     // 1. Call model (with retries).
     const t0 = Date.now();
@@ -82,11 +152,14 @@ export async function loop() {
     const { message } = response.choices[0];
     const { tool_calls: toolCalls = [], content } = message;
 
+    const promptTokens = response.usage?.prompt_tokens ?? 0;
+    lastPromptTokens = promptTokens;
+
     iterationStats.push({
       iteration: i,
       finishReason: response.choices[0].finish_reason,
       apiMs: Date.now() - t0,
-      promptTokens: response.usage?.prompt_tokens ?? 0,
+      promptTokens,
       completionTokens: response.usage?.completion_tokens ?? 0,
       totalTokens: response.usage?.total_tokens ?? 0,
       // Stripped from the sent message by cleanAssistantMessage; kept here so
@@ -115,14 +188,14 @@ export async function loop() {
       return;
     }
 
-    // 4. Execute each tool call and push results back.
+    // 4. Execute each tool calls and push results back.
     for (const toolCall of toolCalls) {
       console.log(
         `  -> ${toolCall.function.name} ${toolCall.function.arguments}`,
       );
 
       const result = await executeToolCall(toolCall);
-      // console.log(`  <- ${formatToolResult(result)}`);
+      console.log(`  <- ${formatToolResult(result)}`);
 
       messages.push({
         role: "tool",
@@ -185,5 +258,10 @@ export async function loop() {
 const isMain =
   process.argv[1] &&
   fileURLToPath(import.meta.url) ===
-    fileURLToPath(new URL(process.argv[1], "file://"));
-if (isMain) loop();
+    fileURLToPath(new URL(process.argv[1], "file:"));
+
+if (isMain) {
+  loop();
+}
+
+export { client, model };

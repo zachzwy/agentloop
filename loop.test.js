@@ -166,11 +166,13 @@ const { loop } = await import("./loop.js");
  * @param {string|null} opts.content
  * @param {Array<{name:string, args:string}>} [opts.toolCalls]
  * @param {string} [opts.finishReason]
+ * @param {{ prompt_tokens: number, completion_tokens: number, total_tokens: number }} [opts.usage]
  */
 function makeApiResponse({
   content = null,
   toolCalls = [],
   finishReason = toolCalls.length > 0 ? "tool_calls" : "stop",
+  usage = { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
 } = {}) {
   const message = { role: "assistant", content };
   if (toolCalls.length > 0) {
@@ -187,11 +189,7 @@ function makeApiResponse({
         finish_reason: finishReason,
       },
     ],
-    usage: {
-      prompt_tokens: 10,
-      completion_tokens: 5,
-      total_tokens: 15,
-    },
+    usage,
   };
 }
 
@@ -442,5 +440,124 @@ describe("loop", () => {
     await loop();
 
     assert.equal(printRunMetricsCalls.length, 1, "printRunMetrics called once");
+  });
+
+  // -----------------------------------------------------------------------
+  // Context limit guard – triggers when the previous API response's
+  // prompt_tokens exceeds PROMPT_LIMIT (700k). Since lastPromptTokens starts
+  // at 0, the guard can only fire starting from the second iteration.
+  // -----------------------------------------------------------------------
+  it("stops early when the API response prompt_tokens exceeds the limit", async () => {
+    // The guard checks lastPromptTokens (from the previous API response's
+    // usage.prompt_tokens). On the first iteration lastPromptTokens is 0,
+    // so the guard passes. We send one response with high prompt_tokens,
+    // then the guard fires on the second iteration.
+    mockApiResponses = [
+      // First call: tool request, reports 800k prompt_tokens (over the limit).
+      makeApiResponse({
+        content: null,
+        toolCalls: [{ name: "test_tool", args: '{"key":"value"}' }],
+        usage: {
+          prompt_tokens: 800_000,
+          completion_tokens: 5,
+          total_tokens: 800_005,
+        },
+      }),
+      // Second call: the guard's final summary turn (tool_choice: "none").
+      makeApiResponse({ content: "Summary: partial work done." }),
+    ];
+
+    await loop();
+
+    // Should have saved a trace with context_limit_exceeded outcome
+    assert.equal(saveTraceCalls.length, 1, "saveTrace should be called once");
+    assert.equal(
+      saveTraceCalls[0].outcome,
+      "context_limit_exceeded",
+      "outcome should be context_limit_exceeded",
+    );
+
+    // Two API calls: the first iteration, then the guard's summary call.
+    assert.equal(
+      mockApiIndex,
+      2,
+      "two API calls: first iteration plus the guard's summary turn",
+    );
+
+    // system + user + assistant(tool call) + tool result + user(limit) + assistant(summary)
+    const msgs = saveTraceCalls[0].messages;
+    assert.equal(msgs.length, 6, "should include the summary exchange");
+    assert.equal(msgs[0].role, "system");
+    assert.equal(msgs[1].role, "user");
+    assert.equal(msgs[2].role, "assistant");
+    assert.equal(msgs[3].role, "tool");
+    assert.equal(msgs[4].role, "user", "guard injects a final user prompt");
+    assert.equal(msgs[5].role, "assistant", "model returns the summary");
+
+    // Iteration stats: the first iteration plus the summary call.
+    const stats = saveTraceCalls[0].iterationStats;
+    assert.equal(stats.length, 2, "first iteration + summary");
+
+    // printRunMetrics should still be called
+    assert.equal(
+      printRunMetricsCalls.length,
+      1,
+      "printRunMetrics should be called",
+    );
+  });
+
+  it("triggers context limit guard mid-run when prompt_tokens exceed the limit", async () => {
+    // First API call returns a tool call with prompt_tokens above the limit.
+    // The guard check passes on the first iteration (lastPromptTokens === 0),
+    // but the response records 800k tokens, so the next iteration is blocked.
+    mockApiResponses = [
+      makeApiResponse({
+        content: null,
+        toolCalls: [{ name: "test_tool", args: '{"key":"value"}' }],
+        usage: {
+          prompt_tokens: 800_000,
+          completion_tokens: 5,
+          total_tokens: 800_005,
+        },
+      }),
+      // The guard's final summary turn.
+      makeApiResponse({ content: "Summary: partial work done." }),
+    ];
+
+    // A large tool result would further inflate the next request, but the
+    // guard fires based on the API response's prompt_tokens before the next
+    // call anyway.
+    mockToolResult = "z".repeat(600_000);
+
+    await loop();
+
+    // Should have saved a trace with context_limit_exceeded outcome
+    assert.equal(saveTraceCalls.length, 1, "saveTrace should be called once");
+    assert.equal(
+      saveTraceCalls[0].outcome,
+      "context_limit_exceeded",
+      "outcome should be context_limit_exceeded",
+    );
+
+    // Two calls: the over-limit iteration, then the guard's summary turn.
+    assert.equal(
+      mockApiIndex,
+      2,
+      "regular call is blocked; only the summary call follows",
+    );
+
+    // system + user + assistant(tool call) + tool result + user(limit) + assistant(summary)
+    const msgs = saveTraceCalls[0].messages;
+    assert.equal(msgs.length, 6, "should include the summary exchange");
+    assert.equal(msgs[0].role, "system");
+    assert.equal(msgs[1].role, "user");
+    assert.equal(msgs[2].role, "assistant");
+    assert.equal(msgs[3].role, "tool");
+    assert.equal(msgs[4].role, "user");
+    assert.equal(msgs[5].role, "assistant");
+
+    // Iteration stats: the first iteration plus the summary call.
+    const stats = saveTraceCalls[0].iterationStats;
+    assert.equal(stats.length, 2, "first iteration + summary");
   });
 });
