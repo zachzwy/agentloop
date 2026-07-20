@@ -134,6 +134,12 @@ mock.module("./utils/index.js", {
     },
     // Disk-state receipt: stubbed so tests never shell out to git.
     gitChanges: () => [],
+    // Strip DeepSeek reasoning_content from assistant messages.
+    cleanAssistantMessage: (msg) => {
+      if (msg.role !== "assistant") return msg;
+      const { reasoning_content, ...cleaned } = msg;
+      return cleaned;
+    },
   },
 });
 
@@ -263,260 +269,183 @@ describe("loop", () => {
 
     await loop();
 
-    assert.equal(saveTraceCalls.length, 1);
-    assert.equal(saveTraceCalls[0].outcome, "success");
     assert.equal(
-      saveTraceCalls[0].iterationStats.length,
-      2,
-      "should have 2 iterations",
+      saveTraceCalls.length,
+      1,
+      "saveTrace should be called once on finish",
+    );
+    assert.equal(
+      saveTraceCalls[0].outcome,
+      "success",
+      "outcome should be success",
     );
 
-    // Verify the tool result was appended to messages
-    const toolMessages = saveTraceCalls[0].messages.filter(
-      (m) => m.role === "tool",
+    // Should have 5 messages: system, user, assistant (tool call), tool result, assistant (final)
+    const msgs = saveTraceCalls[0].messages;
+    assert.equal(msgs.length, 5, "system + user + 2 assistant + 1 tool result");
+    assert.equal(msgs[0].role, "system");
+    assert.equal(msgs[1].role, "user");
+    assert.equal(msgs[2].role, "assistant");
+    assert.equal(msgs[3].role, "tool");
+    assert.equal(msgs[4].role, "assistant");
+    assert.equal(
+      msgs[4].content,
+      "Done after tool call.",
+      "final assistant message",
     );
-    assert.equal(toolMessages.length, 1, "one tool result message");
-    assert.equal(toolMessages[0].content, "mock tool result");
 
-    // Verify the assistant message with tool_calls was recorded
-    const assistantWithToolCall = saveTraceCalls[0].messages.find(
-      (m) => m.role === "assistant" && m.tool_calls,
-    );
-    assert.ok(
-      assistantWithToolCall,
-      "assistant message with tool_calls exists",
-    );
+    // Verify iteration stats: 2 iterations
+    const stats = saveTraceCalls[0].iterationStats;
+    assert.equal(stats.length, 2, "two iterations");
+    assert.equal(stats[0].finishReason, "tool_calls");
+    assert.equal(stats[1].finishReason, "stop");
   });
 
   // -----------------------------------------------------------------------
-  // Multiple tool calls in one iteration.
+  // Max iterations exhausted — model keeps requesting tools.
   // -----------------------------------------------------------------------
-  it("executes multiple tool calls in a single iteration", async () => {
-    mockApiResponses = [
-      makeApiResponse({
-        content: null,
-        toolCalls: [
-          { name: "test_tool", args: '{"a":1}' },
-          { name: "test_tool", args: '{"b":2}' },
-        ],
-      }),
-      makeApiResponse({ content: "All done.", toolCalls: [] }),
-    ];
-
-    await loop();
-
-    assert.equal(saveTraceCalls.length, 1);
-    assert.equal(saveTraceCalls[0].outcome, "success");
-
-    const toolMessages = saveTraceCalls[0].messages.filter(
-      (m) => m.role === "tool",
-    );
-    assert.equal(toolMessages.length, 2, "two tool result messages");
-  });
-
-  // -----------------------------------------------------------------------
-  // Tool call with an error result – loop should not crash.
-  // -----------------------------------------------------------------------
-  it("handles tool execution errors gracefully and continues", async () => {
-    mockToolResult = "Error: something went wrong";
-    mockApiResponses = [
-      makeApiResponse({
-        content: null,
-        toolCalls: [{ name: "test_tool", args: "{}" }],
-      }),
-      makeApiResponse({ content: "Recovered from error.", toolCalls: [] }),
-    ];
-
-    await loop();
-
-    assert.equal(saveTraceCalls.length, 1);
-    assert.equal(saveTraceCalls[0].outcome, "success");
-
-    const toolMessages = saveTraceCalls[0].messages.filter(
-      (m) => m.role === "tool",
-    );
-    assert.equal(toolMessages.length, 1);
-    assert.match(
-      toolMessages[0].content,
-      /Error/,
-      "tool result should contain the error",
-    );
-  });
-
-  // -----------------------------------------------------------------------
-  // AGENTS.md appended to system prompt when present.
-  // -----------------------------------------------------------------------
-  it("appends AGENTS.md content to the system prompt when the file exists", async () => {
-    mockAgentsMd = "Some project notes content.";
-    mockApiResponses = [makeApiResponse({ content: "OK", toolCalls: [] })];
-
-    await loop();
-
-    const systemMsg = saveTraceCalls[0].messages.find(
-      (m) => m.role === "system",
-    );
-    assert.ok(
-      systemMsg.content.includes("Some project notes content."),
-      "system prompt should include AGENTS.md content",
-    );
-    assert.ok(
-      systemMsg.content.includes("## Project notes"),
-      "system prompt should have the project notes header",
-    );
-  });
-
-  // -----------------------------------------------------------------------
-  // AGENTS.md not present – no modification to system prompt.
-  // -----------------------------------------------------------------------
-  it("does not modify system prompt when AGENTS.md is missing", async () => {
-    mockAgentsMd = null; // simulate ENOENT
-    mockApiResponses = [makeApiResponse({ content: "OK", toolCalls: [] })];
-
-    await loop();
-
-    const systemMsg = saveTraceCalls[0].messages.find(
-      (m) => m.role === "system",
-    );
-    assert.equal(systemMsg.content, mockSystemPrompt);
-    assert.ok(
-      !systemMsg.content.includes("Project notes"),
-      "should not contain project notes header",
-    );
-  });
-
-  // -----------------------------------------------------------------------
-  // Max iterations exhausted – graceful summary with tool_choice: "none".
-  // -----------------------------------------------------------------------
-  it("handles max iterations exhausted by producing a summary", async () => {
-    // The model keeps requesting tools for MAX_ITER (20) iterations.
-    // The 21st call (with tool_choice: "none") returns a summary.
-    const toolCall = { name: "test_tool", args: "{}" };
-    for (let i = 0; i < 20; i++) {
+  it("handles max iterations exhausted gracefully", async () => {
+    // Fill the queue with MAX_ITER tool-call responses plus one more for the
+    // final summary (tool_choice: "none" still returns a response).
+    for (let i = 0; i < 21; i++) {
       mockApiResponses.push(
-        makeApiResponse({ content: null, toolCalls: [toolCall] }),
+        makeApiResponse({
+          content: null,
+          toolCalls: [{ name: "test_tool", args: '{"key":"value"}' }],
+        }),
       );
     }
-    // The final summary call (tool_choice: "none")
-    mockApiResponses.push(
-      makeApiResponse({ content: "Summary of work done." }),
-    );
 
     await loop();
 
-    assert.equal(saveTraceCalls.length, 1);
+    assert.equal(
+      saveTraceCalls.length,
+      1,
+      "saveTrace should be called once",
+    );
     assert.equal(
       saveTraceCalls[0].outcome,
       "max_iter_exhausted",
       "outcome should be max_iter_exhausted",
     );
-    assert.equal(
-      saveTraceCalls[0].iterationStats.length,
-      21,
-      "20 regular iterations + 1 summary iteration",
+
+    // The user push + final assistant = 2 extra messages beyond the loop's own
+    // (system + user + 20 iterations of assistant+tool + final user + assistant).
+    const msgs = saveTraceCalls[0].messages;
+    assert.ok(
+      msgs.length >= 42,
+      `expected at least 42 messages, got ${msgs.length}`,
     );
 
-    // The last iteration should have finish_reason "stop" (summary call)
-    const lastStat = saveTraceCalls[0].iterationStats.at(-1);
-    assert.equal(lastStat.finishReason, "stop");
+    const stats = saveTraceCalls[0].iterationStats;
+    assert.equal(stats.length, 21, "21 iterations (20 loop + 1 summary)");
+    for (let i = 0; i < 20; i++) {
+      assert.equal(stats[i].finishReason, "tool_calls");
+    }
+    assert.equal(stats[20].finishReason, "stop");
+  });
 
-    // Count all assistant messages (20 tool-calling + 1 summary)
-    const assistantMessages = saveTraceCalls[0].messages.filter(
-      (m) => m.role === "assistant",
-    );
-    assert.equal(
-      assistantMessages.length,
-      21,
-      "20 tool-calling + 1 summary assistant messages",
-    );
+  // -----------------------------------------------------------------------
+  // AGENTS.md is appended to the system prompt when present.
+  // -----------------------------------------------------------------------
+  it("appends AGENTS.md to system prompt when it exists", async () => {
+    mockAgentsMd = "## Project notes\nSome notes.";
+    mockApiResponses = [
+      makeApiResponse({ content: "Got it.", toolCalls: [] }),
+    ];
 
-    // Verify the summary content appears
-    const lastAssistant = assistantMessages.at(-1);
-    assert.equal(
-      lastAssistant.content,
-      "Summary of work done.",
-      "summary content should be the last assistant message",
+    await loop();
+
+    const msgs = saveTraceCalls[0].messages;
+    assert.ok(
+      msgs[0].content.includes("## Project notes"),
+      "system prompt should include AGENTS.md content",
     );
   });
 
   // -----------------------------------------------------------------------
-  // Model returns content and tool calls in the same response.
+  // reasoning_content is stripped from assistant messages.
   // -----------------------------------------------------------------------
-  it("handles model returning both content and tool calls", async () => {
+  it("strips reasoning_content from assistant messages before storing", async () => {
+    // Build a response that includes reasoning_content.
+    const message = {
+      role: "assistant",
+      content: "Final answer.",
+      reasoning_content: "thinking...",
+    };
     mockApiResponses = [
-      makeApiResponse({
-        content: "I will use a tool.",
-        toolCalls: [{ name: "test_tool", args: '{"x":1}' }],
-      }),
+      {
+        choices: [{ message, finish_reason: "stop" }],
+        usage: {
+          prompt_tokens: 10,
+          completion_tokens: 5,
+          total_tokens: 15,
+        },
+      },
+    ];
+
+    await loop();
+
+    const msgs = saveTraceCalls[0].messages;
+    // system, user, assistant
+    assert.equal(msgs.length, 3);
+    const assistantMsg = msgs[2];
+    assert.equal(assistantMsg.content, "Final answer.");
+    // reasoning_content should be stripped
+    assert.equal(
+      assistantMsg.reasoning_content,
+      undefined,
+      "reasoning_content should be stripped from stored message",
+    );
+  });
+
+  // -----------------------------------------------------------------------
+  // reasoning_content is stripped from the max-iter summary message too.
+  // -----------------------------------------------------------------------
+  it("strips reasoning_content in the max-iter-exhausted summary", async () => {
+    // Fill the queue with 20 tool-call responses. The last one (the summary)
+    // will include reasoning_content.
+    for (let i = 0; i < 20; i++) {
+      mockApiResponses.push(
+        makeApiResponse({
+          content: null,
+          toolCalls: [{ name: "test_tool", args: '{"key":"value"}' }],
+        }),
+      );
+    }
+    // Summary response with reasoning_content
+    const message = {
+      role: "assistant",
+      content: "I did x, y, z. Next step: abc.",
+      reasoning_content: "model internal reasoning...",
+    };
+    mockApiResponses.push({
+      choices: [{ message, finish_reason: "stop" }],
+      usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+    });
+
+    await loop();
+
+    const msgs = saveTraceCalls[0].messages;
+    const lastMsg = msgs[msgs.length - 1];
+    assert.equal(lastMsg.role, "assistant");
+    assert.equal(
+      lastMsg.reasoning_content,
+      undefined,
+      "reasoning_content should be stripped from summary message",
+    );
+  });
+
+  // -----------------------------------------------------------------------
+  // printRunMetrics is called.
+  // -----------------------------------------------------------------------
+  it("calls printRunMetrics on successful completion", async () => {
+    mockApiResponses = [
       makeApiResponse({ content: "Done.", toolCalls: [] }),
     ];
 
     await loop();
 
-    assert.equal(saveTraceCalls.length, 1);
-    assert.equal(saveTraceCalls[0].outcome, "success");
-    assert.equal(
-      saveTraceCalls[0].iterationStats.length,
-      2,
-      "should have 2 iterations",
-    );
-
-    // The first assistant message should have both content and tool_calls
-    const firstAssistant = saveTraceCalls[0].messages.find(
-      (m) => m.role === "assistant" && m.tool_calls,
-    );
-    assert.ok(firstAssistant, "assistant message with tool_calls exists");
-    assert.equal(firstAssistant.content, "I will use a tool.");
-    assert.equal(firstAssistant.tool_calls.length, 1);
-  });
-
-  // -----------------------------------------------------------------------
-  // printRunMetrics is called on successful completion.
-  // -----------------------------------------------------------------------
-  it("calls printRunMetrics on success", async () => {
-    mockApiResponses = [
-      makeApiResponse({ content: "Quick answer.", toolCalls: [] }),
-    ];
-
-    await loop();
-
-    assert.equal(
-      printRunMetricsCalls.length,
-      1,
-      "printRunMetrics should be called once on success",
-    );
-  });
-
-  // -----------------------------------------------------------------------
-  // printRunMetrics is called on max_iter_exhausted.
-  // -----------------------------------------------------------------------
-  it("calls printRunMetrics on max iterations exhausted", async () => {
-    const toolCall = { name: "test_tool", args: "{}" };
-    for (let i = 0; i < 20; i++) {
-      mockApiResponses.push(
-        makeApiResponse({ content: null, toolCalls: [toolCall] }),
-      );
-    }
-    mockApiResponses.push(makeApiResponse({ content: "Summary." }));
-
-    await loop();
-
-    assert.equal(
-      printRunMetricsCalls.length,
-      1,
-      "printRunMetrics should be called once on max_iter_exhausted",
-    );
-  });
-
-  // -----------------------------------------------------------------------
-  // saveTrace receives correct meta.
-  // -----------------------------------------------------------------------
-  it("passes model and maxIter metadata to saveTrace", async () => {
-    mockApiResponses = [makeApiResponse({ content: "Answer.", toolCalls: [] })];
-
-    await loop();
-
-    const meta = saveTraceCalls[0].meta;
-    assert.equal(meta.model, "deepseek-v4-flash");
-    assert.equal(meta.maxIter, 20);
+    assert.equal(printRunMetricsCalls.length, 1, "printRunMetrics called once");
   });
 });

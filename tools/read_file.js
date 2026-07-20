@@ -36,7 +36,7 @@ export const impl = async ({ filePath }) => {
   try {
     const content = await readFile(filePath, "utf8");
     // Truncation is a context-management decision.
-    const MAX_CHARS = 50_000;
+    const MAX_CHARS = 8000;
     return content.length <= MAX_CHARS
       ? content
       : content.slice(0, MAX_CHARS) +

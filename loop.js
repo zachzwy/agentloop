@@ -10,7 +10,7 @@
 //          results (not crashes), API retries, runaway context growth.
 // Phase 6: The 20-task harness: ~20 concrete tasks, an unattended runner, and
 //          a trace log (one JSON file per run with the full message history).
-//          Scan tool results for /sk-[A-Za-z0-9]{20,}/-style patterns before writing.
+//          Scan tool results for /sk-[A-Za-z0-9]{20,}/-pattern before writing.
 // Check point and define next phases (traces from phase 6 inform what's next).
 
 import { readFile } from "node:fs/promises";
@@ -29,6 +29,7 @@ import {
   executeToolCall,
   callWithRetry,
   gitChanges,
+  cleanAssistantMessage,
 } from "./utils/index.js";
 
 const client = new OpenAI({
@@ -91,8 +92,8 @@ export async function loop() {
       console.log(`assistant: ${preview(content)}`);
     }
 
-    // 2. Append model message to conversation.
-    messages.push(message);
+    // 2. Append model message to conversation (strip reasoning_content first).
+    messages.push(cleanAssistantMessage(message));
 
     // 3. If no tool calls → we're done.
     if (toolCalls.length === 0) {
@@ -160,7 +161,7 @@ export async function loop() {
     totalTokens: response.usage?.total_tokens ?? 0,
   });
 
-  messages.push(message);
+  messages.push(cleanAssistantMessage(message));
 
   console.log("\nFinal summary (step limit reached):\n");
   console.log(message.content);

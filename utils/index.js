@@ -11,3 +11,4 @@ export {
   isRetryable,
   callWithRetry,
 } from "./retry.js";
+export { cleanAssistantMessage } from "./cleanAssistantMessage.js";
