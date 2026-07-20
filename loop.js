@@ -35,6 +35,9 @@ import {
 const client = new OpenAI({
   baseURL: "https://api.deepseek.com",
   apiKey: process.env.DEEPSEEK_API_KEY,
+  // The SDK retries internally (default 2). Disable it so callWithRetry is the
+  // only retry layer — otherwise attempts multiply (5 x 3 = up to 15 requests).
+  maxRetries: 0,
 });
 
 const model = "deepseek-v4-flash";
@@ -86,6 +89,9 @@ export async function loop() {
       promptTokens: response.usage?.prompt_tokens ?? 0,
       completionTokens: response.usage?.completion_tokens ?? 0,
       totalTokens: response.usage?.total_tokens ?? 0,
+      // Stripped from the sent message by cleanAssistantMessage; kept here so
+      // the trace still records the model's stated intent (key for triage).
+      reasoning: message.reasoning_content ?? null,
     });
 
     if (content) {
@@ -159,6 +165,7 @@ export async function loop() {
     promptTokens: response.usage?.prompt_tokens ?? 0,
     completionTokens: response.usage?.completion_tokens ?? 0,
     totalTokens: response.usage?.total_tokens ?? 0,
+    reasoning: message.reasoning_content ?? null,
   });
 
   messages.push(cleanAssistantMessage(message));

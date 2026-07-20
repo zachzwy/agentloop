@@ -321,11 +321,7 @@ describe("loop", () => {
 
     await loop();
 
-    assert.equal(
-      saveTraceCalls.length,
-      1,
-      "saveTrace should be called once",
-    );
+    assert.equal(saveTraceCalls.length, 1, "saveTrace should be called once");
     assert.equal(
       saveTraceCalls[0].outcome,
       "max_iter_exhausted",
@@ -353,9 +349,7 @@ describe("loop", () => {
   // -----------------------------------------------------------------------
   it("appends AGENTS.md to system prompt when it exists", async () => {
     mockAgentsMd = "## Project notes\nSome notes.";
-    mockApiResponses = [
-      makeApiResponse({ content: "Got it.", toolCalls: [] }),
-    ];
+    mockApiResponses = [makeApiResponse({ content: "Got it.", toolCalls: [] })];
 
     await loop();
 
@@ -443,9 +437,7 @@ describe("loop", () => {
   // printRunMetrics is called.
   // -----------------------------------------------------------------------
   it("calls printRunMetrics on successful completion", async () => {
-    mockApiResponses = [
-      makeApiResponse({ content: "Done.", toolCalls: [] }),
-    ];
+    mockApiResponses = [makeApiResponse({ content: "Done.", toolCalls: [] })];
 
     await loop();
 
