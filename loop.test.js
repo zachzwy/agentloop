@@ -305,9 +305,9 @@ describe("loop", () => {
   // Max iterations exhausted — model keeps requesting tools.
   // -----------------------------------------------------------------------
   it("handles max iterations exhausted gracefully", async () => {
-    // Fill the queue with MAX_ITER tool-call responses plus one more for the
-    // final summary (tool_choice: "none" still returns a response).
-    for (let i = 0; i < 21; i++) {
+    // Fill the queue with MAX_ITER tool-call responses plus one text-only
+    // response for the final summary (tool_choice: "none").
+    for (let i = 0; i < 20; i++) {
       mockApiResponses.push(
         makeApiResponse({
           content: null,
@@ -315,6 +315,9 @@ describe("loop", () => {
         }),
       );
     }
+    mockApiResponses.push(
+      makeApiResponse({ content: "Summary.", toolCalls: [] }),
+    );
 
     await loop();
 
