@@ -1,5 +1,19 @@
-import { writeFile } from "node:fs/promises";
+import { writeFile, mkdir } from "node:fs/promises";
 import { execSync } from "node:child_process";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+// Anchor traces to the HARNESS, not cwd. When the harness operates on another
+// directory, cwd is the target project — and traces are harness artifacts that
+// shouldn't be written into (or pollute the git status of) someone else's repo.
+// Override with AGENTLOOP_TRACE_DIR, e.g. a mounted volume in a container.
+const HARNESS_ROOT = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "..",
+);
+const TRACE_DIR = process.env.AGENTLOOP_TRACE_DIR
+  ? path.resolve(process.env.AGENTLOOP_TRACE_DIR)
+  : path.join(HARNESS_ROOT, "traces");
 
 /**
  * Run a git command, returning raw stdout or null if git isn't usable.
@@ -78,7 +92,11 @@ export async function saveTrace(messages, iterationStats, outcome, meta = {}) {
     "sk-***REDACTED***",
   );
 
-  const file = `traces/${new Date().toISOString().replace(/[:.]/g, "-")}.json`;
+  // Create the dir on demand: cwd may be a target project with no traces/, and
+  // the harness dir may be read-only-mounted with the volume elsewhere.
+  await mkdir(TRACE_DIR, { recursive: true });
+  const name = `${new Date().toISOString().replace(/[:.]/g, "-")}.json`;
+  const file = path.join(TRACE_DIR, name);
   await writeFile(file, redacted, "utf8");
   console.log(`\ntrace saved: ${file}`);
 
