@@ -13,9 +13,10 @@
 //          Scan tool results for /sk-[A-Za-z0-9]{20,}/-pattern before writing.
 // Check point and define next phases (traces from phase 6 inform what's next).
 
+import path from "node:path";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
-import "dotenv/config";
+import dotenv from "dotenv";
 import OpenAI from "openai";
 import { tools } from "./tools/index.js";
 import {
@@ -31,6 +32,31 @@ import {
   gitChanges,
   cleanAssistantMessage,
 } from "./utils/index.js";
+
+const HARNESS_ROOT = path.dirname(fileURLToPath(import.meta.url));
+
+// Load the key from the HARNESS's .env, not cwd's. Under dir-separation cwd is
+// the target project, so `import "dotenv/config"` (which reads cwd/.env) would
+// silently miss the key. dotenv does NOT override existing process.env, so a
+// real `-e DEEPSEEK_API_KEY=...` (e.g. in a container) still wins — the .env is
+// only the local-dev fallback.
+dotenv.config({ path: path.join(HARNESS_ROOT, ".env"), quiet: true });
+
+// True only when run directly (`node loop.js`), false when imported by tests.
+const isMain =
+  process.argv[1] &&
+  fileURLToPath(import.meta.url) ===
+    fileURLToPath(new URL(process.argv[1], "file:"));
+
+// Fail fast on a missing key, but only for a real run — importing the module in
+// tests (where OpenAI is mocked) must not exit the process.
+if (isMain && !process.env.DEEPSEEK_API_KEY) {
+  console.error(
+    "Error: DEEPSEEK_API_KEY is not set. Provide it via the environment " +
+      `(e.g. -e DEEPSEEK_API_KEY=...) or in ${path.join(HARNESS_ROOT, ".env")}.`,
+  );
+  process.exit(1);
+}
 
 const client = new OpenAI({
   baseURL: "https://api.deepseek.com",
@@ -255,11 +281,6 @@ export async function loop() {
 }
 
 // Only auto-run when executed directly, not when imported in tests.
-const isMain =
-  process.argv[1] &&
-  fileURLToPath(import.meta.url) ===
-    fileURLToPath(new URL(process.argv[1], "file:"));
-
 if (isMain) {
   loop();
 }

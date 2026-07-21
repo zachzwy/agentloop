@@ -94,9 +94,10 @@ mock.module("openai", {
   },
 });
 
-// --- dotenv/config (side-effect only) ---
-mock.module("dotenv/config", {
-  exports: {},
+// --- dotenv --- loop.js now loads the harness .env explicitly; stub config()
+// to a no-op so tests never read a real .env or depend on a key being present.
+mock.module("dotenv", {
+  exports: { default: { config: () => ({ parsed: {} }) } },
 });
 
 // --- ./utils/index.js ---
