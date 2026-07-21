@@ -7,23 +7,24 @@ import { fileURLToPath } from "node:url";
 // directory, cwd is the target project — and traces are harness artifacts that
 // shouldn't be written into (or pollute the git status of) someone else's repo.
 // Override with AGENTLOOP_TRACE_DIR, e.g. a mounted volume in a container.
-const HARNESS_ROOT = path.resolve(
+export const HARNESS_ROOT = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "..",
 );
-const TRACE_DIR = process.env.AGENTLOOP_TRACE_DIR
+export const TRACE_DIR = process.env.AGENTLOOP_TRACE_DIR
   ? path.resolve(process.env.AGENTLOOP_TRACE_DIR)
   : path.join(HARNESS_ROOT, "traces");
 
 /**
- * Run a git command, returning raw stdout or null if git isn't usable.
+ * Run a git command in `cwd`, returning raw stdout or null if git isn't usable.
  * Deliberately NOT trimmed: `status --porcelain` encodes meaning in the two
  * leading status columns, so a blanket trim() eats the first line's leading
  * space and corrupts its path.
  */
-function git(args) {
+function git(args, cwd) {
   try {
     return execSync(`git ${args}`, {
+      cwd,
       stdio: ["ignore", "pipe", "ignore"],
     }).toString();
   } catch {
@@ -31,8 +32,11 @@ function git(args) {
   }
 }
 
-/** Best-effort git SHA so a trace records which harness version produced it. */
-const gitSha = () => git("rev-parse --short HEAD")?.trim() ?? null;
+// Provenance: which HARNESS version produced this run. Reads the harness repo,
+// not cwd — under dir-separation cwd is the target project, whose SHA is not
+// what we mean by "which version of the agent ran this".
+const gitSha = () =>
+  git("rev-parse --short HEAD", HARNESS_ROOT)?.trim() ?? null;
 
 /**
  * Ground truth for what changed on disk, independent of what the model says it
@@ -42,6 +46,8 @@ const gitSha = () => git("rev-parse --short HEAD")?.trim() ?? null;
  * Status codes: M modified, A added, D deleted, R renamed, ?? untracked.
  */
 export function gitChanges() {
+  // No cwd argument → runs in process.cwd(), i.e. the TARGET project. This is
+  // the receipt for what the agent changed, which is exactly what we want.
   const out = git("status --porcelain");
   if (out === null) return null; // not a repo / git unavailable
   return out

@@ -11,8 +11,9 @@
 
 import { readdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-
-const TRACE_DIR = "traces";
+// Read from the same resolved dir saveTrace writes to — honours
+// AGENTLOOP_TRACE_DIR and stays correct no matter which cwd the CLI runs from.
+import { TRACE_DIR } from "./utils/trace.js";
 
 async function loadAll() {
   const files = (await readdir(TRACE_DIR))
