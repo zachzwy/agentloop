@@ -1,0 +1,400 @@
+{
+  "version": 1,
+  "description": "Command policy for the coding assistant. Deny-by-default. Keyed on parsed program name (argv[0]). Argument-aware.",
+  "defaultDecision": "deny",
+  "rules": [
+    {
+      "command": "ls",
+      "decision": "allow",
+      "reason": "Read-only directory listing."
+    },
+    {
+      "command": "pwd",
+      "decision": "allow",
+      "reason": "Print working directory; read-only."
+    },
+    {
+      "command": "cat",
+      "decision": "allow",
+      "reason": "Read-only file inspection."
+    },
+    {
+      "command": "head",
+      "decision": "allow",
+      "reason": "Read-only file preview."
+    },
+    {
+      "command": "tail",
+      "decision": "allow",
+      "reason": "Read-only file preview."
+    },
+    {
+      "command": "wc",
+      "decision": "allow",
+      "reason": "Read-only file statistics."
+    },
+    {
+      "command": "which",
+      "decision": "allow",
+      "reason": "Read-only path resolution."
+    },
+    {
+      "command": "node",
+      "args": {
+        "allowWhen": [
+          { "includes": "--version" },
+          { "includes": "--check" },
+          { "includesAll": ["--experimental-test-module-mocks", "--test"] },
+          { "includes": "--test" }
+        ],
+        "denyWhen": [
+          { "includes": "-e" },
+          { "includes": "--eval" },
+          { "includes": "--print" },
+          { "includes": "-p" }
+        ]
+      },
+      "decision": "deny",
+      "reason": "node allowed only for --version, --check, --test; inline code (-e/--eval/--print) and arbitrary script execution rejected."
+    },
+    {
+      "command": "npm",
+      "args": {
+        "allowWhen": [
+          { "includes": "test" },
+          { "includesAll": ["run", "format"] }
+        ],
+        "denyWhen": [
+          { "includes": "install" },
+          { "includes": "add" },
+          { "includes": "init" },
+          { "includes": "publish" },
+          { "includes": "exec" },
+          { "includes": "run-script" }
+        ]
+      },
+      "decision": "deny",
+      "reason": "npm allowed only for test and run format; install/add/init/publish/exec rejected."
+    },
+    {
+      "command": "npx",
+      "decision": "deny",
+      "reason": "npx fetches and runs arbitrary packages from the network; rejected."
+    },
+    {
+      "command": "git",
+      "args": {
+        "allowWhen": [
+          { "includes": "status" },
+          { "includes": "diff" },
+          { "includes": "log" },
+          { "includes": "show" },
+          { "includes": "blame" },
+          { "includes": "branch" },
+          { "includes": "add" },
+          { "includes": "commit" },
+          { "includes": "checkout" },
+          { "includes": "restore" },
+          { "includes": "stash" },
+          { "includes": "config" },
+          { "includes": "init" }
+        ],
+        "denyWhen": [
+          { "includes": "push" },
+          { "includes": "pull" },
+          { "includes": "fetch" },
+          { "includes": "merge" },
+          { "includes": "rebase" },
+          { "includes": "reset" },
+          { "includes": "clean" },
+          { "includes": "clone" },
+          { "includes": "remote" },
+          { "includes": "submodule" }
+        ]
+      },
+      "decision": "deny",
+      "reason": "git allowed for local read-only and safe state operations; network (push/pull/fetch/clone) and destructive (reset/clean) rejected."
+    },
+    {
+      "command": "prettier",
+      "args": {
+        "allowWhen": [
+          { "includes": "--check" },
+          { "includesAll": ["--write", "."] }
+        ]
+      },
+      "decision": "deny",
+      "reason": "prettier allowed only for --check (read-only) and --write . (format cwd)."
+    },
+    {
+      "command": "echo",
+      "decision": "allow",
+      "reason": "Echo is read-only (prints to stdout)."
+    },
+    {
+      "command": "printf",
+      "decision": "allow",
+      "reason": "Printf is read-only (prints to stdout)."
+    },
+    {
+      "command": "dirname",
+      "decision": "allow",
+      "reason": "Path manipulation; read-only."
+    },
+    {
+      "command": "basename",
+      "decision": "allow",
+      "reason": "Path manipulation; read-only."
+    },
+    {
+      "command": "realpath",
+      "decision": "allow",
+      "reason": "Path resolution; read-only."
+    },
+    {
+      "command": "sort",
+      "decision": "allow",
+      "reason": "Read-only text processing."
+    },
+    {
+      "command": "uniq",
+      "decision": "allow",
+      "reason": "Read-only text processing."
+    },
+    {
+      "command": "grep",
+      "decision": "allow",
+      "reason": "Read-only text search."
+    },
+    {
+      "command": "find",
+      "decision": "deny",
+      "reason": "find can invoke other programs via -exec; rejected."
+    },
+    {
+      "command": "xargs",
+      "decision": "deny",
+      "reason": "xargs invokes other programs; rejected."
+    },
+    {
+      "command": "env",
+      "decision": "deny",
+      "reason": "env can set variables and invoke other programs; rejected."
+    },
+    {
+      "command": "make",
+      "decision": "deny",
+      "reason": "make runs arbitrary build commands; rejected."
+    },
+    {
+      "command": "rm",
+      "decision": "deny",
+      "reason": "Irreversible deletion; rejected."
+    },
+    {
+      "command": "rmdir",
+      "decision": "deny",
+      "reason": "Directory deletion; rejected."
+    },
+    {
+      "command": "mv",
+      "decision": "deny",
+      "reason": "File/directory move; rejected."
+    },
+    {
+      "command": "cp",
+      "decision": "deny",
+      "reason": "File copy (could overwrite); rejected."
+    },
+    {
+      "command": "dd",
+      "decision": "deny",
+      "reason": "Destructive low-level I/O; rejected."
+    },
+    {
+      "command": "truncate",
+      "decision": "deny",
+      "reason": "Destructive file truncation; rejected."
+    },
+    {
+      "command": "chmod",
+      "decision": "deny",
+      "reason": "Permission changes; rejected."
+    },
+    {
+      "command": "chown",
+      "decision": "deny",
+      "reason": "Ownership changes; rejected."
+    },
+    {
+      "command": "curl",
+      "decision": "deny",
+      "reason": "Network transfer; exfiltration vector; rejected."
+    },
+    {
+      "command": "wget",
+      "decision": "deny",
+      "reason": "Network transfer; exfiltration vector; rejected."
+    },
+    {
+      "command": "ssh",
+      "decision": "deny",
+      "reason": "Remote access; network side effect; rejected."
+    },
+    {
+      "command": "scp",
+      "decision": "deny",
+      "reason": "Remote file transfer; rejected."
+    },
+    {
+      "command": "sftp",
+      "decision": "deny",
+      "reason": "Remote file transfer; rejected."
+    },
+    {
+      "command": "rsync",
+      "decision": "deny",
+      "reason": "Remote file transfer; rejected."
+    },
+    {
+      "command": "nc",
+      "decision": "deny",
+      "reason": "Network socket tool; rejected."
+    },
+    {
+      "command": "telnet",
+      "decision": "deny",
+      "reason": "Remote access protocol; rejected."
+    },
+    {
+      "command": "bash",
+      "decision": "deny",
+      "reason": "Shell — reopens injection wholesale; rejected."
+    },
+    {
+      "command": "sh",
+      "decision": "deny",
+      "reason": "Shell — reopens injection wholesale; rejected."
+    },
+    {
+      "command": "zsh",
+      "decision": "deny",
+      "reason": "Shell — reopens injection wholesale; rejected."
+    },
+    {
+      "command": "python",
+      "decision": "deny",
+      "reason": "Interpreter — inline code or REPL = arbitrary execution; rejected."
+    },
+    {
+      "command": "python3",
+      "decision": "deny",
+      "reason": "Interpreter — inline code or REPL = arbitrary execution; rejected."
+    },
+    {
+      "command": "ruby",
+      "decision": "deny",
+      "reason": "Interpreter — inline code or REPL = arbitrary execution; rejected."
+    },
+    {
+      "command": "perl",
+      "decision": "deny",
+      "reason": "Interpreter — inline code or REPL = arbitrary execution; rejected."
+    },
+    {
+      "command": "php",
+      "decision": "deny",
+      "reason": "Interpreter — inline code or REPL = arbitrary execution; rejected."
+    },
+    {
+      "command": "awk",
+      "decision": "deny",
+      "reason": "awk can run arbitrary code via system(); rejected."
+    },
+    {
+      "command": "sed",
+      "decision": "deny",
+      "reason": "sed -i modifies files in-place; rejected. Use write_file tool instead."
+    },
+    {
+      "command": "tee",
+      "decision": "deny",
+      "reason": "tee writes to files; rejected. Use write_file tool instead."
+    },
+    {
+      "command": "touch",
+      "decision": "deny",
+      "reason": "touch modifies file timestamps/creates files; rejected."
+    },
+    {
+      "command": "mkdir",
+      "decision": "deny",
+      "reason": "mkdir creates directories; rejected."
+    },
+    {
+      "command": "ln",
+      "decision": "deny",
+      "reason": "ln creates links (filesystem mutation); rejected."
+    },
+    {
+      "command": "kill",
+      "decision": "deny",
+      "reason": "kill terminates processes; rejected."
+    },
+    {
+      "command": "sudo",
+      "decision": "deny",
+      "reason": "Privilege escalation; rejected."
+    },
+    {
+      "command": "su",
+      "decision": "deny",
+      "reason": "User switching; rejected."
+    },
+    {
+      "command": "docker",
+      "decision": "deny",
+      "reason": "Docker runs containers with arbitrary code; rejected."
+    },
+    {
+      "command": "apt",
+      "decision": "deny",
+      "reason": "Package installation (system-wide side effects); rejected."
+    },
+    {
+      "command": "apt-get",
+      "decision": "deny",
+      "reason": "Package installation (system-wide side effects); rejected."
+    },
+    {
+      "command": "pip",
+      "decision": "deny",
+      "reason": "Python package installation (network + arbitrary code); rejected."
+    },
+    {
+      "command": "pip3",
+      "decision": "deny",
+      "reason": "Python package installation (network + arbitrary code); rejected."
+    },
+    {
+      "command": "cargo",
+      "decision": "deny",
+      "reason": "Rust package manager (network + arbitrary code); rejected."
+    },
+    {
+      "command": "go",
+      "decision": "deny",
+      "reason": "Go toolchain (can build and run arbitrary code); rejected."
+    },
+    {
+      "command": "deno",
+      "decision": "deny",
+      "reason": "Deno runtime (arbitrary code execution); rejected."
+    },
+    {
+      "command": "bun",
+      "decision": "deny",
+      "reason": "Bun runtime (arbitrary code execution); rejected."
+    }
+  ]
+}

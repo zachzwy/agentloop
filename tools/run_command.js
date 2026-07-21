@@ -1,55 +1,68 @@
-import { exec } from "node:child_process";
+import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import readline from "node:readline/promises";
-import { stdin as input, stdout as output } from "node:process";
+import { checkPolicy } from "./policy.js";
 
-const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
 export const schema = {
   type: "function",
   function: {
     name: "run_command",
     description:
-      "Run a shell command in the working directory. Every execution requires explicit user approval before running.",
+      "Run a program with arguments in the working directory. No shell is " +
+      "used, so shell features do NOT work: no pipes (|), redirection (>), " +
+      "chaining (; && ||), globbing (*), or substitution ($(...)). Pass the " +
+      "program as `command` and each argument as a separate item in `args` " +
+      "(e.g. command 'node', args ['--test', 'loop.test.js']). " +
+      "Commands are evaluated against a policy allowlist — unlisted or " +
+      "dangerous commands are denied automatically.",
     parameters: {
       type: "object",
       properties: {
         command: {
           type: "string",
           description:
-            "The shell command to run. Can be any valid shell command (e.g., 'ls -la', 'node script.js', 'git status').",
+            "The program to run, e.g. 'node', 'npm', 'git', 'ls'. Resolved " +
+            "via PATH. Not a shell command line — no metacharacters.",
+        },
+        args: {
+          type: "array",
+          items: { type: "string" },
+          description:
+            "Arguments, one per array item. Metacharacters here are literal " +
+            "text, not shell operators. Use [] for no arguments.",
         },
       },
-      required: ["command"],
+      required: ["command", "args"],
       additionalProperties: false,
     },
     strict: true,
   },
 };
 
-export const impl = async ({ command }) => {
-  // -----------------------------------------------------------------------
-  // Permission gate — ask the user interactively before running anything.
-  // -----------------------------------------------------------------------
-  const rl = readline.createInterface({ input, output });
+export const impl = async ({ command, args }) => {
+  const argv = Array.isArray(args) ? args : [];
+  // Display form only — execution uses the array, so this can't reintroduce
+  // shell semantics. Quote args with spaces so the prompt is unambiguous.
+  const display = [command, ...argv]
+    .map((a) => (/\s/.test(a) ? `'${a}'` : a))
+    .join(" ");
 
-  const answer = await rl.question(
-    `\n⚠️  The LLM wants to run the following command:\n\n` +
-      `   ${command}\n\n` +
-      `   Allow? (y/N) `,
-  );
-  rl.close();
+  // -----------------------------------------------------------------------
+  // Layer 2 — Policy decision (allow/deny).
+  // -----------------------------------------------------------------------
+  const { allowed, reason } = await checkPolicy(command, argv);
 
-  const normalized = answer.trim().toLowerCase();
-  if (normalized !== "y" && normalized !== "yes") {
-    return `Command execution denied by user: '${command}' was NOT run.`;
+  if (!allowed) {
+    return `Policy denied: command '${display}' was NOT run.\nReason: ${reason}`;
   }
 
   // -----------------------------------------------------------------------
-  // Execute.
+  // Execute — execFile runs the program directly (no /bin/sh), so shell
+  // metacharacters in args are inert literal strings.
   // -----------------------------------------------------------------------
   try {
-    const { stdout, stderr } = await execAsync(command, {
+    const { stdout, stderr } = await execFileAsync(command, argv, {
       cwd: process.cwd(),
       maxBuffer: 10 * 1024 * 1024, // 10 MB.
       timeout: 60_000, // 60 seconds.
@@ -65,7 +78,7 @@ export const impl = async ({ command }) => {
     }
 
     if (!result) {
-      return `Command '${command}' completed successfully (no output).`;
+      return `Command '${display}' completed successfully (no output).`;
     }
 
     // Truncate if too long.
@@ -79,11 +92,15 @@ export const impl = async ({ command }) => {
     return result;
   } catch (err) {
     if (err.killed && err.signal === "SIGTERM") {
-      return `Error: command '${command}' timed out after 60 seconds.`;
+      return `Error: command '${display}' timed out after 60 seconds.`;
+    }
+    // execFile sets code to 'ENOENT' when the program isn't found on PATH.
+    if (err.code === "ENOENT") {
+      return `Error: program '${command}' not found. Check the name and that it is installed.`;
     }
     const stderr = err.stderr || "";
     const stdout = err.stdout || "";
-    let msg = `Error running command '${command}': ${err.message}`;
+    let msg = `Error running command '${display}': ${err.message}`;
     if (stderr) msg += `\nstderr: ${stderr}`;
     if (stdout) msg += `\nstdout: ${stdout}`;
     return msg;
