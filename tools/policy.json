@@ -42,10 +42,11 @@
       "command": "node",
       "args": {
         "allowWhen": [
-          { "includes": "--version" },
-          { "includes": "--check" },
-          { "includesAll": ["--experimental-test-module-mocks", "--test"] },
-          { "includes": "--test" }
+          { "firstArgIn": ["--version", "-v", "--check", "--test"] },
+          {
+            "firstArg": "--experimental-test-module-mocks",
+            "includes": "--test"
+          }
         ],
         "denyWhen": [
           { "includes": "-e" },
@@ -55,14 +56,14 @@
         ]
       },
       "decision": "deny",
-      "reason": "node allowed only for --version, --check, --test; inline code (-e/--eval/--print) and arbitrary script execution rejected."
+      "reason": "node allowed only when the FIRST arg is --version/--check/--test (or --experimental-test-module-mocks together with --test). This blocks `node evil.js --test`, where the script — not the flag — is what runs. Inline code (-e/--eval/--print) always denied."
     },
     {
       "command": "npm",
       "args": {
         "allowWhen": [
-          { "includes": "test" },
-          { "includesAll": ["run", "format"] }
+          { "firstArg": "test" },
+          { "firstArg": "run", "includes": "format" }
         ],
         "denyWhen": [
           { "includes": "install" },
@@ -74,7 +75,7 @@
         ]
       },
       "decision": "deny",
-      "reason": "npm allowed only for test and run format; install/add/init/publish/exec rejected."
+      "reason": "npm allowed only when the subcommand (first arg) is `test`, or `run` with the `format` script. Other subcommands and install/add/publish/exec rejected."
     },
     {
       "command": "npx",
@@ -85,35 +86,25 @@
       "command": "git",
       "args": {
         "allowWhen": [
-          { "includes": "status" },
-          { "includes": "diff" },
-          { "includes": "log" },
-          { "includes": "show" },
-          { "includes": "blame" },
-          { "includes": "branch" },
-          { "includes": "add" },
-          { "includes": "commit" },
-          { "includes": "checkout" },
-          { "includes": "restore" },
-          { "includes": "stash" },
-          { "includes": "config" },
-          { "includes": "init" }
-        ],
-        "denyWhen": [
-          { "includes": "push" },
-          { "includes": "pull" },
-          { "includes": "fetch" },
-          { "includes": "merge" },
-          { "includes": "rebase" },
-          { "includes": "reset" },
-          { "includes": "clean" },
-          { "includes": "clone" },
-          { "includes": "remote" },
-          { "includes": "submodule" }
+          {
+            "firstArgIn": [
+              "status",
+              "diff",
+              "log",
+              "show",
+              "blame",
+              "branch",
+              "add",
+              "commit",
+              "checkout",
+              "restore",
+              "stash"
+            ]
+          }
         ]
       },
       "decision": "deny",
-      "reason": "git allowed for local read-only and safe state operations; network (push/pull/fetch/clone) and destructive (reset/clean) rejected."
+      "reason": "git allowed only when the SUBCOMMAND is the first arg. This rejects pre-subcommand option injection like `git -c core.pager=<cmd> log` (argv[0] would be `-c`, not a subcommand). `config`/`init` dropped from the allowlist because `git config` can set pager/hooks that execute arbitrary commands on later git calls. Network (push/pull/fetch/clone) and destructive (reset/clean) subcommands are not in the allowlist."
     },
     {
       "command": "prettier",

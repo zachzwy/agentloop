@@ -187,50 +187,54 @@ function validateCondition(condition, ruleIndex, category, condIndex) {
   const c = /** @type {Record<string, unknown>} */ (condition);
   const keys = Object.keys(c);
 
+  // Position-aware keys (firstArg/firstArgIn) are what make the policy safe for
+  // interpreters and subcommand tools — see matchCondition.
+  const KNOWN = [
+    "includes",
+    "startsWith",
+    "includesAll",
+    "firstArg",
+    "firstArgIn",
+  ];
+
   if (keys.length === 0) {
     throw new Error(
-      `Policy validation failed: rules[${ruleIndex}].args.${category}[${condIndex}] is an empty object; expected one of "includes", "startsWith", or "includesAll"`,
+      `Policy validation failed: rules[${ruleIndex}].args.${category}[${condIndex}] is an empty object; expected one of ${KNOWN.join(", ")}`,
     );
   }
 
-  // Check for unknown keys
-  const knownKeys = new Set(["includes", "startsWith", "includesAll"]);
   for (const key of keys) {
-    if (!knownKeys.has(key)) {
+    if (!KNOWN.includes(key)) {
       throw new Error(
-        `Policy validation failed: rules[${ruleIndex}].args.${category}[${condIndex}] has unknown key "${key}"; expected one of "includes", "startsWith", or "includesAll"`,
+        `Policy validation failed: rules[${ruleIndex}].args.${category}[${condIndex}] has unknown key "${key}"; expected one of ${KNOWN.join(", ")}`,
       );
     }
   }
 
-  // Validate each known key
-  if ("includes" in c) {
-    if (typeof c.includes !== "string") {
+  // String-valued keys.
+  for (const key of ["includes", "startsWith", "firstArg"]) {
+    if (key in c && typeof c[key] !== "string") {
       throw new Error(
-        `Policy validation failed: rules[${ruleIndex}].args.${category}[${condIndex}].includes must be a string, got ${typeof c.includes}`,
+        `Policy validation failed: rules[${ruleIndex}].args.${category}[${condIndex}].${key} must be a string, got ${typeof c[key]}`,
       );
     }
   }
 
-  if ("startsWith" in c) {
-    if (typeof c.startsWith !== "string") {
-      throw new Error(
-        `Policy validation failed: rules[${ruleIndex}].args.${category}[${condIndex}].startsWith must be a string, got ${typeof c.startsWith}`,
-      );
-    }
-  }
-
-  if ("includesAll" in c) {
-    if (!Array.isArray(c.includesAll)) {
-      throw new Error(
-        `Policy validation failed: rules[${ruleIndex}].args.${category}[${condIndex}].includesAll must be an array, got ${typeof c.includesAll}`,
-      );
-    }
-    for (let k = 0; k < c.includesAll.length; k++) {
-      if (typeof c.includesAll[k] !== "string") {
+  // String-array-valued keys.
+  for (const key of ["includesAll", "firstArgIn"]) {
+    if (key in c) {
+      const arr = c[key];
+      if (!Array.isArray(arr)) {
         throw new Error(
-          `Policy validation failed: rules[${ruleIndex}].args.${category}[${condIndex}].includesAll[${k}] must be a string, got ${typeof c.includesAll[k]}`,
+          `Policy validation failed: rules[${ruleIndex}].args.${category}[${condIndex}].${key} must be an array, got ${typeof arr}`,
         );
+      }
+      for (let k = 0; k < arr.length; k++) {
+        if (typeof arr[k] !== "string") {
+          throw new Error(
+            `Policy validation failed: rules[${ruleIndex}].args.${category}[${condIndex}].${key}[${k}] must be a string, got ${typeof arr[k]}`,
+          );
+        }
       }
     }
   }
@@ -258,31 +262,55 @@ async function loadPolicy() {
 // ---------------------------------------------------------------------------
 
 /**
- * Check whether a single arg condition is satisfied.
+ * Check whether a single arg condition is satisfied. ALL keys present in the
+ * condition must match (logical AND) — so `{ firstArg: "run", includes: "format" }`
+ * means argv[0] === "run" AND "format" appears in argv.
  *
- * Supported condition shapes:
- *   { includes: "str" }       — any arg equals "str" exactly
- *   { startsWith: "str" }     — any arg starts with "str"
- *   { includesAll: ["a","b"] } — every string in the array appears as an arg
+ * Supported keys:
+ *   { includes: "str" }        — "str" appears anywhere in argv
+ *   { startsWith: "str" }      — some arg starts with "str"
+ *   { includesAll: ["a","b"] } — every listed string appears in argv
+ *   { firstArg: "str" }        — argv[0] === "str"  (POSITIONAL)
+ *   { firstArgIn: [...] }      — argv[0] is one of the list (POSITIONAL)
+ *
+ * The positional keys are the security-relevant ones: interpreter flags
+ * (node --test) and subcommands (git status) only mean what the policy assumes
+ * when they are in the FIRST position. Checking "appears anywhere" let
+ * `node evil.js --test` and `git -c pager=cmd log` slip through.
  *
  * @param {Record<string, unknown>} condition
- * @param {string[]} args
+ * @param {string[]} argv
  * @returns {boolean}
  */
-function matchCondition(condition, args) {
-  if ("includes" in condition) {
-    const val = /** @type {string} */ (condition.includes);
-    return args.includes(val);
+function matchCondition(condition, argv) {
+  const entries = Object.entries(condition);
+  if (entries.length === 0) return false;
+
+  for (const [key, val] of entries) {
+    switch (key) {
+      case "includes":
+        if (!argv.includes(/** @type {string} */ (val))) return false;
+        break;
+      case "startsWith": {
+        const prefix = /** @type {string} */ (val);
+        if (!argv.some((a) => a.startsWith(prefix))) return false;
+        break;
+      }
+      case "includesAll":
+        if (!/** @type {string[]} */ (val).every((v) => argv.includes(v)))
+          return false;
+        break;
+      case "firstArg":
+        if (argv[0] !== val) return false;
+        break;
+      case "firstArgIn":
+        if (!/** @type {string[]} */ (val).includes(argv[0])) return false;
+        break;
+      default:
+        return false; // unknown key (validator should have caught it)
+    }
   }
-  if ("startsWith" in condition) {
-    const prefix = /** @type {string} */ (condition.startsWith);
-    return args.some((a) => a.startsWith(prefix));
-  }
-  if ("includesAll" in condition) {
-    const vals = /** @type {string[]} */ (condition.includesAll);
-    return vals.every((v) => args.includes(v));
-  }
-  return false;
+  return true;
 }
 
 /**
@@ -308,7 +336,18 @@ function anyConditionMatches(conditions, args) {
  * @returns {Promise<{ allowed: boolean; reason: string }>}
  */
 export async function checkPolicy(command, args) {
-  const policy = await loadPolicy();
+  // Fail CLOSED: a missing or malformed policy.json must deny every command,
+  // never crash the run. A security gate that throws is a gate that's off.
+  let policy;
+  try {
+    policy = await loadPolicy();
+  } catch (err) {
+    return {
+      allowed: false,
+      reason: `Policy unavailable — failing closed (denying all): ${err.message}`,
+    };
+  }
+
   const argv = Array.isArray(args) ? args : [];
 
   // Find the first rule matching this command name.
