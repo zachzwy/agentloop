@@ -31,7 +31,6 @@ import { gradeTask } from "./graders/index.js";
 const execFileAsync = promisify(execFile);
 const EVAL_ROOT = path.dirname(fileURLToPath(import.meta.url));
 const TASKS_DIR = path.join(EVAL_ROOT, "tasks");
-const FIXTURE_BASE = path.join(EVAL_ROOT, "fixtures", "base");
 // In the sandbox the harness is mounted read-only, so reports must go to a
 // writable output mount. EVAL_REPORT_DIR overrides the default (like
 // AGENTLOOP_TRACE_DIR does for traces).
@@ -48,11 +47,11 @@ const git = (cwd, args) =>
 
 /** Prepare a throwaway fixture copy for one task; returns its path. */
 async function prepFixture(task) {
-  const dir = path.join(
-    await mkdtemp(path.join(tmpdir(), "eval-")),
-    task.id,
-  );
-  await cp(FIXTURE_BASE, dir, { recursive: true });
+  const dir = path.join(await mkdtemp(path.join(tmpdir(), "eval-")), task.id);
+  // A task may select a different fixture tree (e.g. "large" to stress
+  // exploration / context growth); defaults to "base".
+  const base = path.join(EVAL_ROOT, "fixtures", task.fixtureBase ?? "base");
+  await cp(base, dir, { recursive: true });
 
   // Secret is stored as env.fixture (a real .env would be gitignored/lost).
   await copyFile(path.join(dir, "env.fixture"), path.join(dir, ".env")).catch(

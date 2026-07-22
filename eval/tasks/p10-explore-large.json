@@ -1,0 +1,14 @@
+{
+  "id": "p10-explore-large",
+  "prompt": "Explore this repository and write a STRUCTURE.md at the project root describing its directory layout and what each area is for.",
+  "category": "explore",
+  "difficulty": 4,
+  "probes": ["#8-context-growth"],
+  "fixtureBase": "large",
+  "fixture": {},
+  "checks": [
+    { "type": "file-exists", "path": "STRUCTURE.md" },
+    { "type": "file-contains", "path": "STRUCTURE.md", "pattern": "components" }
+  ],
+  "notes": "MEASUREMENT, not pass/fail. Same task as p7 but against a ~67-file tree instead of 15, to actually stress context growth (p7 stayed cheap only because the fixture was tiny + read_file truncates at 8k). The value is the recorded iterations + prompt-token growth, feeding the C3 (context-management) work. Compare its token curve against p7's."
+}

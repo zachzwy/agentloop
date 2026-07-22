@@ -28,8 +28,12 @@ export const impl = async ({ filePath }) => {
     return `Error: '${filePath}' is outside the working directory. Only paths inside it are allowed.`;
   }
 
-  const DENY = [".env", ".env.local", ".env.production"];
-  if (DENY.includes(path.basename(filePath))) {
+  // Secret-file denylist. Still a list, not a policy (see docs/future-work.md),
+  // but now catches any `.env*` variant and the eval fixture's key file, which
+  // p7 read straight into a trace.
+  const base = path.basename(filePath);
+  const DENY = ["env.fixture"];
+  if (base.startsWith(".env") || DENY.includes(base)) {
     return `Error: '${filePath}' contains secrets and cannot be read.`;
   }
 

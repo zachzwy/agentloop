@@ -1,0 +1,2 @@
+{ "name": "webapp", "version": "2.1.0", "type": "module", "private": true,
+  "scripts": { "format": "node format.js", "test": "node --test tests/" } }
