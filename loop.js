@@ -1,14 +1,14 @@
-// [done] Phase 1: A simple Q&A agent, with no tool calling, single round.
-// [done] Phase 2: One tool (read_file), one round-trip. Learn the tool-calling protocol:
+// [done] Step 1: A simple Q&A agent, with no tool calling, single round.
+// [done] Step 2: One tool (read_file), one round-trip. Learn the tool-calling protocol:
 //          tools= schema, msg.tool_calls, the role:"tool" result message.
-// [done] Phase 3: The loop. Continue while the model calls tools; stop when it replies
+// [done] Step 3: The loop. Continue while the model calls tools; stop when it replies
 //          with plain text. Add a max-iteration safety cap. The model decides
 //          when it's done — no external exit criteria.
-// [done] Phase 4: More tools -> coding assistant: read_file, list_files, write_file, run_command.
+// [done] Step 4: More tools -> coding assistant: read_file, list_files, write_file, run_command.
 //          Same loop, different tools and system prompt.
-// [done] Phase 5: Robustness for unattended runs: tool exceptions returned as tool
+// [done] Step 5: Robustness for unattended runs: tool exceptions returned as tool
 //          results (not crashes), API retries, runaway context growth.
-// Phase 6: The 20-task harness: ~20 concrete tasks, an unattended runner, and
+// Step 6: The 20-task harness: ~20 concrete tasks, an unattended runner, and
 //          a trace log (one JSON file per run with the full message history).
 //          Scan tool results for /sk-[A-Za-z0-9]{20,}/-pattern before writing.
 // Check point and define next phases (traces from phase 6 inform what's next).
