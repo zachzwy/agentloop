@@ -8,10 +8,10 @@
 //          Same loop, different tools and system prompt.
 // [done] Step 5: Robustness for unattended runs: tool exceptions returned as tool
 //          results (not crashes), API retries, runaway context growth.
-// Step 6: The 20-task harness: ~20 concrete tasks, an unattended runner, and
-//          a trace log (one JSON file per run with the full message history).
-//          Scan tool results for /sk-[A-Za-z0-9]{20,}/-pattern before writing.
-// Check point and define next phases (traces from phase 6 inform what's next).
+// [done] Step 6: Unattended eval harness — probe tasks tied to prior learnings,
+//          external grader (receipts, not claims), per-learning regression
+//          report, bwrap/Docker sandbox. See eval/ and docs/eval-harness-plan.md.
+//          Checkpoint: docs/roadmap.md (what step 6's traces revealed & next steps).
 
 import path from "node:path";
 import { readFile } from "node:fs/promises";
