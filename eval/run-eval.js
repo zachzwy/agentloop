@@ -32,7 +32,12 @@ const execFileAsync = promisify(execFile);
 const EVAL_ROOT = path.dirname(fileURLToPath(import.meta.url));
 const TASKS_DIR = path.join(EVAL_ROOT, "tasks");
 const FIXTURE_BASE = path.join(EVAL_ROOT, "fixtures", "base");
-const REPORTS_DIR = path.join(EVAL_ROOT, "reports");
+// In the sandbox the harness is mounted read-only, so reports must go to a
+// writable output mount. EVAL_REPORT_DIR overrides the default (like
+// AGENTLOOP_TRACE_DIR does for traces).
+const REPORTS_DIR = process.env.EVAL_REPORT_DIR
+  ? path.resolve(process.env.EVAL_REPORT_DIR)
+  : path.join(EVAL_ROOT, "reports");
 
 const git = (cwd, args) =>
   execFileAsync(

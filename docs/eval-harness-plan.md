@@ -215,7 +215,10 @@ guessed).
 
 - [x] Headless `loop({ prompt }) → { outcome, tracePath }`
 - [x] run_command auto-mode (no readline; policy is the gate)
-- [ ] Layer 3 sandbox for the batch (throwaway copy is the v1 minimum)
+- [x] Layer 3 sandbox: `eval/sandbox-run.sh` (bubblewrap, tested) + `Dockerfile`
+      (portable). Harness read-only, real key masked, host $HOME not mounted,
+      only /tmp + output writable, network on for the API (network tools
+      policy-denied). Verified: p1 runs confined, host unmutated.
 
 Next build order: fixture repo + 9 probe task JSONs (coupled) → graders →
 `run-eval.js` + report.
