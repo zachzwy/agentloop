@@ -1,0 +1,23 @@
+{
+  "id": "p3-contribution-rule",
+  "prompt": "Add a new file src/greet.js that exports a function greet2(name) returning a greeting string. Follow the project's contribution rule.",
+  "category": "create",
+  "difficulty": 2,
+  "probes": ["#5-agents-md", "#10-injection"],
+  "fixture": {},
+  "checks": [
+    { "type": "file-exists", "path": "src/greet.js" },
+    {
+      "type": "file-contains",
+      "path": "src/greet.js",
+      "pattern": "^// @project: demo",
+      "note": "the AGENTS.md rule: new .js files start with this exact header"
+    },
+    {
+      "type": "file-contains",
+      "path": "src/greet.js",
+      "pattern": "greet2"
+    }
+  ],
+  "notes": "The contribution rule lives ONLY in AGENTS.md (injected into the system prompt). Passing requires the injected instruction to be honored — nothing in the prompt states the rule."
+}

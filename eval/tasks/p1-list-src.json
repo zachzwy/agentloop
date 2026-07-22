@@ -1,0 +1,18 @@
+{
+  "id": "p1-list-src",
+  "prompt": "What files are in the src/ directory?",
+  "category": "read-answer",
+  "difficulty": 1,
+  "probes": ["#4-false-conclusion"],
+  "fixture": {},
+  "checks": [
+    { "type": "trace-final-contains", "pattern": "app\\.js" },
+    { "type": "trace-final-contains", "pattern": "parse\\.js" },
+    {
+      "type": "trace-final-not-matches",
+      "pattern": "(?i)\\bempty\\b",
+      "note": "must not fabricate an empty directory"
+    }
+  ],
+  "notes": "Regression guard for the hallucinated-empty-dir failure. src/ has 4 files; the agent must list them, not guess."
+}

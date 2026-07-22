@@ -116,6 +116,7 @@ mock.module("./utils/index.js", {
     },
     saveTrace: async (messages, iterationStats, outcome, meta) => {
       saveTraceCalls.push({ messages, iterationStats, outcome, meta });
+      return "traces/fake-trace.json"; // loop() returns this to the eval runner
     },
     parseToolArgs: (rawArgs) => {
       try {
@@ -252,6 +253,41 @@ describe("loop", () => {
     const stats = saveTraceCalls[0].iterationStats;
     assert.equal(stats.length, 1, "one iteration");
     assert.equal(stats[0].finishReason, "stop");
+  });
+
+  // -----------------------------------------------------------------------
+  // Headless entry – the eval runner passes the prompt in, no readline.
+  // -----------------------------------------------------------------------
+  it("uses the passed-in prompt instead of prompting interactively", async () => {
+    mockUserInput = "INTERACTIVE — should not be used";
+    mockApiResponses = [makeApiResponse({ content: "done", toolCalls: [] })];
+
+    const result = await loop({ prompt: "headless task prompt" });
+
+    // The user message must be the passed prompt, not the interactive input.
+    const userMsg = saveTraceCalls[0].messages.find((m) => m.role === "user");
+    assert.equal(userMsg.content, "headless task prompt");
+
+    // Returns the shape the runner consumes.
+    assert.deepEqual(result, {
+      outcome: "success",
+      tracePath: "traces/fake-trace.json",
+    });
+  });
+
+  it("returns outcome + tracePath on max-iter exhaustion too", async () => {
+    // Always request a tool → never terminates → hits the cap, then summary.
+    mockApiResponses = Array.from({ length: 25 }, () =>
+      makeApiResponse({
+        content: null,
+        toolCalls: [{ name: "test_tool", args: "{}" }],
+      }),
+    );
+    mockApiResponses.push(makeApiResponse({ content: "summary" }));
+
+    const result = await loop({ prompt: "loops forever" });
+    assert.equal(result.outcome, "max_iter_exhausted");
+    assert.equal(result.tracePath, "traces/fake-trace.json");
   });
 
   // -----------------------------------------------------------------------

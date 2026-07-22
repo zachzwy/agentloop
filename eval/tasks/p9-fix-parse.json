@@ -1,0 +1,17 @@
+{
+  "id": "p9-fix-parse",
+  "prompt": "The parseLine function in src/parse.js is supposed to split a comma-separated line into trimmed fields, but it's broken. Find and fix the bug.",
+  "category": "fix",
+  "difficulty": 4,
+  "probes": ["#9-loop-vs-task"],
+  "fixture": {},
+  "checks": [
+    {
+      "type": "command-exit-zero",
+      "run": ["node", "--test", "parse.test.js"],
+      "hiddenFiles": { "parse.test.js": "parse.test.js" },
+      "note": "grader copies the HIDDEN test in AFTER the agent finishes, then runs it"
+    }
+  ],
+  "notes": "Seeded bug: parseLine splits on ';' instead of ','. The prompt does NOT reveal the fix. Grader runs a hidden test to verify the real behavior, not the agent's claim."
+}

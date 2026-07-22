@@ -297,14 +297,14 @@ function matchCondition(condition, argv) {
         break;
       }
       case "includesAll":
-        if (!/** @type {string[]} */ (val).every((v) => argv.includes(v)))
+        if (!(/** @type {string[]} */ (val).every((v) => argv.includes(v))))
           return false;
         break;
       case "firstArg":
         if (argv[0] !== val) return false;
         break;
       case "firstArgIn":
-        if (!/** @type {string[]} */ (val).includes(argv[0])) return false;
+        if (!(/** @type {string[]} */ (val).includes(argv[0]))) return false;
         break;
       default:
         return false; // unknown key (validator should have caught it)

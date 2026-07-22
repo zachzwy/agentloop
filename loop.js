@@ -79,8 +79,16 @@ const PROMPT_LIMIT = Math.floor(CONTEXT_LIMIT * 0.7); // 700 000
 // Main loop.
 // ---------------------------------------------------------------------------
 
-export async function loop() {
-  const userInput = await getUserInput();
+/**
+ * Run one agent task to completion.
+ *
+ * @param {object} [opts]
+ * @param {string} [opts.prompt] - The task. If omitted, prompt interactively
+ *   (the `node loop.js` path). Passing it in is the headless/batch entry.
+ * @returns {Promise<{ outcome: string, tracePath: string }>} for the eval runner.
+ */
+export async function loop({ prompt } = {}) {
+  const userInput = prompt ?? (await getUserInput());
   let systemPrompt = await loadSystemPrompt();
   const agentsMd = await readFile("AGENTS.md", "utf8").catch(() => null);
   if (agentsMd) systemPrompt += `\n\n## Project notes\n${agentsMd}`;
@@ -155,13 +163,14 @@ export async function loop() {
       console.log("\nFinal summary (context limit reached):\n");
       console.log(message.content);
 
-      await saveTrace(messages, iterationStats, "context_limit_exceeded", {
-        model,
-        maxIter: MAX_ITER,
-        gitChangesBefore,
-      });
+      const tracePath = await saveTrace(
+        messages,
+        iterationStats,
+        "context_limit_exceeded",
+        { model, maxIter: MAX_ITER, gitChangesBefore },
+      );
       printRunMetrics(iterationStats);
-      return;
+      return { outcome: "context_limit_exceeded", tracePath };
     }
 
     // 1. Call model (with retries).
@@ -205,13 +214,13 @@ export async function loop() {
       console.log("\nFinal formatted response:\n");
       console.log(content);
 
-      await saveTrace(messages, iterationStats, "success", {
+      const tracePath = await saveTrace(messages, iterationStats, "success", {
         model,
         maxIter: MAX_ITER,
         gitChangesBefore,
       });
       printRunMetrics(iterationStats);
-      return;
+      return { outcome: "success", tracePath };
     }
 
     // 4. Execute each tool calls and push results back.
@@ -272,12 +281,14 @@ export async function loop() {
   console.log("\nFinal summary (step limit reached):\n");
   console.log(message.content);
 
-  await saveTrace(messages, iterationStats, "max_iter_exhausted", {
-    model,
-    maxIter: MAX_ITER,
-    gitChangesBefore,
-  });
+  const tracePath = await saveTrace(
+    messages,
+    iterationStats,
+    "max_iter_exhausted",
+    { model, maxIter: MAX_ITER, gitChangesBefore },
+  );
   printRunMetrics(iterationStats);
+  return { outcome: "max_iter_exhausted", tracePath };
 }
 
 // Only auto-run when executed directly, not when imported in tests.

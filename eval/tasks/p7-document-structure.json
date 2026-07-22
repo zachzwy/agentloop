@@ -1,0 +1,18 @@
+{
+  "id": "p7-document-structure",
+  "prompt": "Explore the repository and write a STRUCTURE.md at the project root describing its directory layout and what each part is for.",
+  "category": "explore",
+  "difficulty": 4,
+  "probes": ["#8-context-growth"],
+  "fixture": {},
+  "checks": [
+    { "type": "file-exists", "path": "STRUCTURE.md" },
+    {
+      "type": "file-contains",
+      "path": "STRUCTURE.md",
+      "pattern": "src",
+      "note": "mentions the real structure, not a guess"
+    }
+  ],
+  "notes": "Primarily a MEASUREMENT task: a 15-file repo invites greedy exploration. The pass/fail is light; the value is the recorded iterations + token growth, feeding the context-management (C3) work. Watch whether it blows the budget."
+}

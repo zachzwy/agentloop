@@ -1,0 +1,17 @@
+{
+  "id": "p8-add-sum",
+  "prompt": "Add a function sum(a, b) to src/math.js that returns a + b. Then run the tests to prove it works.",
+  "category": "create",
+  "difficulty": 4,
+  "probes": ["#9-loop-vs-task"],
+  "fixture": {},
+  "checks": [
+    {
+      "type": "command-exit-zero",
+      "run": ["node", "--test", "math.test.js"],
+      "hiddenFiles": { "math.test.js": "math.test.js" },
+      "note": "grader copies the HIDDEN test in AFTER the agent finishes, then runs it"
+    }
+  ],
+  "notes": "The agent will claim the tests pass. The grader ignores the claim and runs its own hidden test (not present in the fixture the agent saw) against src/math.js. Loop outcome != task outcome — only the hidden test decides."
+}
