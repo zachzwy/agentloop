@@ -22,7 +22,15 @@ OUTPUT="${EVAL_OUTPUT_DIR:-$HARNESS/eval/reports/_sandbox-out}"
 NODE_BIN="$(command -v node)"
 NODE_DIR="$(dirname "$(dirname "$(readlink -f "$NODE_BIN")")")" # .../node/vX
 
-: "${DEEPSEEK_API_KEY:?set DEEPSEEK_API_KEY in the environment}"
+# Get the key from the gitignored .env if it isn't already in the environment.
+# `grep` (not `source`) so we never execute arbitrary content, and the key never
+# has to be typed on a command line (which would leak into shell history / `ps`).
+if [ -z "${DEEPSEEK_API_KEY:-}" ] && [ -f "$HARNESS/.env" ]; then
+  DEEPSEEK_API_KEY="$(grep -E '^DEEPSEEK_API_KEY=' "$HARNESS/.env" | head -1 | cut -d= -f2-)"
+  export DEEPSEEK_API_KEY
+fi
+: "${DEEPSEEK_API_KEY:?no key: set DEEPSEEK_API_KEY or put it in $HARNESS/.env}"
+
 mkdir -p "$OUTPUT/traces" "$OUTPUT/reports"
 
 exec bwrap \
