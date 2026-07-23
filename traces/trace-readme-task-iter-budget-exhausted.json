@@ -60,7 +60,7 @@
     },
     {
       "iteration": 4,
-      "action": "read_file x2: .antigravitycli/<local-session>....json, .prettierignore"
+      "action": "read_file x2: .antigravitycli/<local-session>.json, .prettierignore"
     },
     {
       "iteration": 5,
@@ -198,7 +198,7 @@
     {
       "role": "tool",
       "tool_call_id": "call_02_qSyRC3CIBAqjuI6VzBgz9573",
-      "content": "[FILE] <local-session>.json"
+      "content": "[FILE] <local-session-id>.json"
     },
     {
       "role": "assistant",
@@ -302,7 +302,7 @@
           "type": "function",
           "function": {
             "name": "read_file",
-            "arguments": "{\"filePath\": \".antigravitycli/<local-session>.json\"}"
+            "arguments": "{\"filePath\": \".antigravitycli/<local-session-id>.json\"}"
           }
         },
         {
@@ -319,7 +319,7 @@
     {
       "role": "tool",
       "tool_call_id": "call_00_vy6UO4Ai0tcK6JaPkn1r1602",
-      "content": "{\n  \"id\":  \"<local-session>\",\n  \"name\":  \"/path/to/agentloop\",\n  \"projectResources\":  {\n    \"resources\":  [\n      {\n        \"gitFolder\":  {\n          \"folderUri\":  \"file:///path/to/agentloop\",\n          \"allowWrite\":  true\n        }\n      }\n    ]\n  }\n}"
+      "content": "{\n  \"id\":  \"<local-session-id>\",\n  \"name\":  \"/path/to/agentloop\",\n  \"projectResources\":  {\n    \"resources\":  [\n      {\n        \"gitFolder\":  {\n          \"folderUri\":  \"file:///path/to/agentloop\",\n          \"allowWrite\":  true\n        }\n      }\n    ]\n  }\n}"
     },
     {
       "role": "tool",

@@ -1,7 +1,29 @@
 {
+  "name": "agentloop",
+  "version": "1.0.0",
+  "description": "A coding agent built from scratch — model-plus-tools loop, command policy, OS sandbox, and an eval harness that grades on receipts rather than claims.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zachzwy/agentloop.git"
+  },
+  "keywords": [
+    "llm",
+    "agent",
+    "tool-calling",
+    "coding-agent",
+    "eval",
+    "sandbox"
+  ],
   "type": "module",
+  "main": "loop.js",
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
-    "format": "node node_modules/prettier/bin/prettier.cjs --write ."
+    "format": "node node_modules/prettier/bin/prettier.cjs --write .",
+    "test": "node --experimental-test-module-mocks --test loop.test.js tools/*.test.js",
+    "eval": "./eval/sandbox-run.sh"
   },
   "dependencies": {
     "dotenv": "^17.4.2",

@@ -1,211 +1,160 @@
-# Agent Loop
+# agentloop
 
-A minimal, phased learning project that builds an LLM-powered coding assistant with tool-calling capabilities. The agent runs in a loop: the model calls tools, results are fed back, and the model decides when it's done — no external exit criteria.
+A coding agent built from scratch — a plain model-plus-tools loop, no framework —
+to learn where the real problems in agent harness engineering are.
 
-## Overview
+The agent runs in a loop: the model calls tools, results are fed back, and the
+model decides when it's done. No external exit criteria. Around that loop sit the
+things that actually make unattended runs work: a command policy, an OS sandbox,
+retries, context management, trace logging, and an eval harness that grades the
+agent on receipts rather than on what it claims.
 
-This project started as a simple Q&A agent (Phase 1) and has evolved through incremental phases into a tool-using coding assistant. It's designed to explore the full tool-calling protocol: schema definitions, round-trip message handling, iteration budgets, error resilience, and trace logging.
+**Status: complete (all 6 build steps).** Built in phases, each one driven by a
+failure found in the previous one's traces.
 
-**Phase 4 is complete**: four tools (`read_file`, `list_files`, `write_file`, `run_command`) driving a loop with a safety cap — the agent can now read code, write it, and run commands to verify its own work. Several Phase 5 features (tool exceptions as strings, context truncation, graceful landing on cap exhaustion) and Phase 6 features (trace logging, secret redaction, trace triage CLI) are already in place.
+## Why this repo might be interesting
 
-Agent/dev conventions: see AGENTS.md.
+Most "I built an agent" projects stop at the loop. The parts here that took real
+work — and produced findings I didn't expect:
+
+- **A command allowlist is not a security boundary.** The eval caught the agent
+  routing around seven policy denials (`rm`, `node -e`, `find -delete`,
+  `git clean`, `truncate`, `python3`) by writing arbitrary JavaScript into a
+  `.test.js` file and running it with the *allowed* `node --test`. A test file is
+  arbitrary code, so no allowlist can close this — the OS sandbox is what actually
+  drew the line. Written up in
+  [`docs/run-command-safety-plan.md`](docs/run-command-safety-plan.md) ("Finding A").
+- **Graders check receipts, not claims.** Tasks are graded by an external grader
+  against the filesystem and *hidden* tests copied in after the agent finishes —
+  because an agent reporting success and an agent succeeding are different events.
+- **Traces are the primary artifact.** `traces/` holds annotated real runs of
+  failures (confident fabrication, iteration-budget exhaustion, a leaked key) that
+  each drove a specific fix.
+- **Measured, not assumed.** Context growth was stress-tested against a 67-file
+  target and *didn't* run away (the model samples; reads are truncated) —
+  contradicting the assumption the work started from.
 
 ## Architecture
 
 ```
-├── .antigravitycli/         # Local Antigravity CLI session data
-│   └── <local-session>.json
-├── .env                     # Environment variables (API key, etc.)
-├── .gitignore
-├── .prettierignore
-├── README.md
-├── loop.js                  # Main entry point - the agent loop
-├── traces.js                # Trace triage CLI (list / show / note)
-├── package.json
-├── prompts/
-│   └── system.md            # System prompt / persona (honesty clause, tool-use guidelines)
-├── tools/
-│   ├── index.js             # Exports tool schemas and implementations
-│   ├── guard.js             # Path security: blocks access outside CWD
-│   ├── read_file.js         # Read a UTF-8 file (with .env denial)
-│   ├── list_files.js        # List directory contents
-│   ├── run_command.js       # Run a shell command with user confirmation
-│   ├── run_command.test.js  # Unit tests for run_command
-│   └── write_file.js        # Write/create files (creates dirs automatically)
-├── traces/                  # JSON trace logs from agent runs
-│   ├── *.json               # Auto-named traces (ISO timestamp)
-│   ├── trace-hallucinated-empty-dir.json
-│   └── trace-readme-task-iter-budget-exhausted.json
-└── utils/
-    ├── index.js             # Re-exports all utilities
-    ├── executeToolCall.js   # Executes a single tool call with argument parsing
-    ├── formatToolResult.js  # Formats tool results for console display
-    ├── input.js             # User input handling (readline prompt)
-    ├── logger.js            # Logging utilities (preview, metrics)
-    ├── parseToolArgs.js     # Safe JSON argument parsing
-    ├── prompt.js            # Prompt loading / management
-    └── trace.js             # Trace logging (with secret redaction)
+loop.js                  # the agent loop — entry point (and importable: loop({prompt}))
+traces.js                # trace triage CLI (list / show / note)
+prompts/system.md        # system prompt (honesty clause, tool-use guidance)
+
+tools/
+  index.js               # tool schemas + implementations, dispatch map
+  guard.js               # path guard: rejects anything outside cwd
+  read_file.js           # read a UTF-8 file (secret-file denylist, 8k truncation)
+  list_files.js          # list a directory
+  write_file.js          # write/create files (creates parent dirs)
+  run_command.js         # run a program via execFile — NO shell, policy-gated
+  policy.js              # allow/deny engine: positional matching, fail-closed
+  policy.json            # the policy itself — data, reviewable in one place
+
+utils/
+  trace.js               # trace persistence + git receipts + secret redaction
+  retry.js               # API retry with backoff, honours Retry-After
+  executeToolCall.js     # tool dispatch; errors become strings, never throw
+  cleanAssistantMessage.js  # strips reasoning_content before resending
+  ...                    # prompt, input, logger, formatting helpers
+
+eval/
+  run-eval.js            # unattended batch runner → summary.json + summary.md
+  sandbox-run.sh         # bubblewrap launcher (Layer 3 isolation)
+  graders/index.js       # external grader, 8 check types
+  graders/hidden/        # hidden tests, copied in AFTER the agent finishes
+  tasks/*.json           # one file per task; each ties to a documented learning
+  fixtures/base|large/   # throwaway targets (15-file and 67-file trees)
+
+docs/                    # the reasoning: safety plan, eval design, roadmap, backlog
+traces/                  # annotated real runs that drove the fixes
+Dockerfile               # portable equivalent of the bwrap sandbox
 ```
 
-## Tools
+## Quick start
 
-| Tool          | Description                                   | Security                                                                             |
-| ------------- | --------------------------------------------- | ------------------------------------------------------------------------------------ |
-| `read_file`   | Read a UTF-8 text file                        | Path-guarded; blocks `.env`, `.env.local`, `.env.production`; truncates at 50K chars |
-| `list_files`  | List files/directories in a path              | Path-guarded; friendly errors for missing dirs                                       |
-| `write_file`  | Write content to a file (creates parent dirs) | Path-guarded                                                                         |
-| `run_command` | Run a shell command with user confirmation    | Asks for user approval before executing; 60-second timeout                           |
-
-All tools return errors as strings (never throw) so the agent can gracefully handle failures.
-
-## Agent Loop
-
-The main loop in `loop.js` (function `phase3`):
-
-1. Loads the system prompt and accepts user input
-2. Calls the LLM with available tools (`tool_choice: "auto"`)
-3. If the model calls tools → executes them → feeds results back → repeats
-4. If the model replies with plain text → prints the answer and exits
-5. If `MAX_ITER` (currently **20**) is reached → makes one final call with `tool_choice: "none"` so the model summarizes what it accomplished and what remains, then exits with an abnormal-termination message
-
-The cap is a **fuse against runaway loops, not a task budget** — it should sit well above any legitimate workload. The graceful landing exists because a run once hit the cap on the same iteration that finished the task, so a success was reported as a failure (see Lessons Learned).
-
-### Token Metrics
-
-After each successful run, the loop prints per-iteration and total token usage (prompt, completion, sum).
-
-## Development Phases
-
-| Phase | Description                                                             | Status     |
-| ----- | ----------------------------------------------------------------------- | ---------- |
-| **1** | Single-round Q&A, no tools                                              | ✅ Done    |
-| **2** | One tool (read_file), one round-trip                                    | ✅ Done    |
-| **3** | Full loop with MAX_ITER cap, model decides when done                    | ✅ Done    |
-| **4** | Four tools (read_file, list_files, write_file, run_command)             | ✅ Done    |
-| **5** | Robustness: tool exceptions as strings, API retries, context management | 📋 Partial |
-| **6** | 20-task harness, unattended runner, trace logging, secret redaction     | 📋 Partial |
-
-**Phase 4 done when**: the agent could write code and run commands to verify it. Demonstrated by a run where it wrote a 16-test suite for `run_command`, discovered Node's `--experimental-test-module-mocks` flag on its own, and got the suite passing (trace `2026-07-19T13-46`).
-
-**Phase 5 status**: Tool exceptions returned as strings ✅. Context management (50K char truncation) ✅. Tool results coerced to strings at the dispatch boundary ✅. Graceful landing on cap exhaustion ✅. API retries — not yet implemented.
-
-**Phase 6 status**: Trace logging ✅ (each run saves a JSON trace). Secret redaction ✅ (auto-redacts `sk-...` patterns before writing). Trace triage CLI ✅. 20-task harness and unattended runner — not yet implemented. **Blocker**: `run_command` asks for interactive approval, which will hang an unattended run — needs an auto-approve policy first.
-
-## Security
-
-- **Path guardrail**: All tools reject paths outside the working directory (`outsideCwd` check in `tools/guard.js`)
-- **Sensitive file denial**: `read_file` explicitly blocks `.env`, `.env.local`, `.env.production`
-- **Command approval**: `run_command` asks for user confirmation before executing any shell command
-- **Secret redaction**: Trace logs automatically redact `sk-...` API key patterns before writing to disk
-
-## Getting Started
-
-### Prerequisites
-
-- Node.js 18+
-- A DeepSeek (or OpenAI-compatible) API key
-
-### Setup
+Requires Node 20+ (uses `node --test` and `mock.module`).
 
 ```bash
-# Install dependencies
 npm install
-
-# Set your API key
-echo "DEEPSEEK_API_KEY=sk-..." > .env
-
-# Run the agent
+echo "DEEPSEEK_API_KEY=sk-your-key" > .env    # .env is gitignored; never commit it
 node loop.js
 ```
 
-### Usage
+The agent reads `AGENTS.md` from the working directory, if present, and appends it
+to the system prompt.
 
-The agent will prompt you for a question. For example:
-
-```
-Enter your question: what files are in the current directory?
-```
-
-It will use its tools to explore, then provide an answer.
-
-### Running Tests
-
-Unit tests use Node's built-in test runner. To run the tests for `run_command`:
+### Tests
 
 ```bash
-node --experimental-test-module-mocks --test tools/run_command.test.js
+node --experimental-test-module-mocks --test loop.test.js tools/*.test.js
 ```
 
-The `--experimental-test-module-mocks` flag enables module mocking (used by the tests to simulate user input and command execution without actually running commands).
+The flag is required — module mocking is still experimental. 162 tests, including
+adversarial policy tests that pin known bypasses.
 
-## Traces
+## The eval harness
 
-Every run saves a JSON trace to `traces/`, named by ISO timestamp. Each trace holds the full message history plus top-level summary fields so a run can be scanned without reading the whole conversation:
-
-| Field                                              | Meaning                                                               |
-| -------------------------------------------------- | --------------------------------------------------------------------- |
-| `task`                                             | The user's request                                                    |
-| `outcome`                                          | How the **loop** ended: `success` or `max_iter_exhausted`             |
-| `taskSucceeded`                                    | Whether the **task** actually succeeded — set by hand during triage   |
-| `tags`, `notes`                                    | Failure categories and free-text findings — set by hand during triage |
-| `model`, `maxIter`, `gitSha`, `savedAt`            | Provenance: which harness version produced this run                   |
-| `iterations`, `promptTokensFinal`, `apiMsTotal`, … | Rolled-up metrics                                                     |
-
-`outcome` and `taskSucceeded` are deliberately separate: a run can end abnormally while the task actually succeeded (or end cleanly with a wrong answer). Filenames never change — annotations go **inside** the file.
-
-### Trace Triage CLI
+An unattended batch runner over probe tasks, each tied to a lesson learned earlier
+in the project, so the suite doubles as a **regression report on the fixes**.
 
 ```bash
-node traces.js list                          # scan every run
-node traces.js list --tag runtime-probing    # filter to one failure category
-node traces.js list --untagged               # the triage backlog
-node traces.js show 2026-07-19T13-46         # metadata + collapsed conversation
+./eval/sandbox-run.sh                    # all tasks, inside the sandbox
+./eval/sandbox-run.sh p6-write-outside   # one task
 ```
 
-Annotate a run after reading it (trace IDs are filename prefixes — any unambiguous prefix works):
+Each task is one JSON file: a prompt, a fixture, `category`/`difficulty`/`probes`,
+and grader checks. The runner copies a fixture to a temp dir, commits a clean git
+baseline, runs the agent headless against it, then grades the *result* — files on
+disk, hidden tests, and the final answer's text — never the agent's self-report.
+Output is `summary.json` (for trend graphs) and `summary.md`, including a by-probe
+rollup so a regression points at the specific lesson it broke.
 
-```bash
-node traces.js note 2026-07-19T13-46 \
-  --tag runtime-probing --tag false-abnormal-exit \
-  --ok \
-  --note "Tests passed 16/16; harness reported failure because MAX_ITER hit on the same iteration."
-```
+Design notes: [`docs/eval-harness-plan.md`](docs/eval-harness-plan.md).
 
-| Flag              | Effect                                       |
-| ----------------- | -------------------------------------------- |
-| `--tag <name>`    | Add a failure category (repeatable, deduped) |
-| `--note "<text>"` | Set the free-text note                       |
-| `--ok` / `--fail` | Set `taskSucceeded` to `true` / `false`      |
+## Security model
 
-Listing shows both outcomes side by side, so discrepancies are visible at a glance:
+Four layers, each doing a different job — the whole argument is in
+[`docs/run-command-safety-plan.md`](docs/run-command-safety-plan.md).
 
-```
-2026-07-19T13-46  ABN task:ok   20it  16k  create a unit test for tools/run_command.js  [runtime-probing, …]
-                    ↳ Tests passed 16/16; harness reported failure because MAX_ITER hit …
-```
+| Layer | What it does |
+| ----- | ------------ |
+| 0 — Tool guards | Path tools reject anything outside cwd; `read_file` denies secret files |
+| 1 — No shell | `run_command` uses `execFile`, so `;`, `\|`, `$()`, globs are inert literals |
+| 2 — Command policy | Deny-by-default allowlist with **positional** argument matching, fail-closed if the policy won't load |
+| 3 — OS isolation | bubblewrap/Docker: working dir writable, everything else read-only or unmounted |
 
-Tags are the raw material for a failure taxonomy: start loose, and let the vocabulary that recurs become the categories worth measuring.
+The honest conclusion, learned the hard way: **layers 0–2 stop honest mistakes and
+shrink the blast radius; layer 3 is the only real boundary.** You cannot decide
+what a Turing-complete program will do by inspecting its arguments.
 
-## Lessons Learned (from traces)
+## Lessons from the traces
 
-The `traces/` directory contains real run logs that document failure modes found during development:
+`traces/` holds annotated real runs. Each drove a fix now in the code:
 
-- **Confident fabrication** (trace-hallucinated-empty-dir.json): An early version had only `read_file` (no `list_files`). When the model tried to read the directory (EISDIR error), it guessed common filenames from training priors, found nothing, and confidently concluded the directory was empty.
-- **Iteration budget exhaustion** (trace-readme-task-iter-budget-exhausted.json): With MAX_ITER=5, the model spent all iterations exploring the codebase (reading every file) and ran out of steps before writing the README. The model also read `.env` unprompted, leaking the API key into the trace.
-- **False abnormal exit** (2026-07-19T13-46, tagged `false-abnormal-exit`): The agent wrote a 16-test suite for `run_command` and got it green — but the cap was reached on the same iteration that ran the tests, so the model never summarized and the harness reported `max_iter_exhausted`. A completed task looked like a failure. Same trace, tagged `runtime-probing`: after hitting `TypeError: mock.module is not a function`, the model spent seven iterations inspecting Node internals before trying `node --help | grep -i mock`, which found the flag immediately.
+- **Confident fabrication** — with only `read_file` and no `list_files`, the model
+  hit `EISDIR`, guessed common filenames from training priors, found nothing, and
+  concluded the directory was empty. → added `list_files`, steering error text
+  that names the right tool, and a system-prompt honesty clause.
+- **Iteration-budget exhaustion** — with `MAX_ITER=5` the model spent every step
+  exploring and never wrote the file; it also read `.env` unprompted, leaking the
+  key into the trace. → `MAX_ITER` raised to 20 (a *fuse*, not a task budget),
+  secret denylist in `read_file`, and redaction in the trace writer. (The key was
+  rotated.)
+- **False abnormal exit** — the cap was reached on the same iteration that ran a
+  passing test suite, so a completed task was reported as a failure. → graceful
+  landing: one final call with tools omitted, so partial work gets summarized.
+- **Policy bypass via an allowed code-runner** — see Finding A above. → documented
+  as an unclosable Layer-2 gap; Layer 3 contains it.
 
-These traces informed the fixes now in place: `list_files` tool, `MAX_ITER` raised to 20, `.env` denial in `read_file`, and the system prompt honesty clause. Still open: a graceful landing on cap exhaustion (one final call with `tool_choice: "none"` so partial work is summarized rather than discarded).
+Open items are tracked in [`docs/future-work.md`](docs/future-work.md).
 
 ## Dependencies
 
-- [openai](https://www.npmjs.com/package/openai) ^6.47.0 — OpenAI/DeepSeek API client
-- [dotenv](https://www.npmjs.com/package/dotenv) ^17.4.2 — Environment variable loading
-- [prettier](https://www.npmjs.com/package/prettier) ^3.9.5 (dev) — Code formatting
-
-```bash
-npm run format    # Format all files with Prettier
-```
+- [openai](https://www.npmjs.com/package/openai) — API client (used against DeepSeek)
+- [dotenv](https://www.npmjs.com/package/dotenv) — loads the harness's own `.env`
+- [prettier](https://www.npmjs.com/package/prettier) (dev)
 
 ## License
 
-Internal / learning project.
+MIT — see [LICENSE](LICENSE).
