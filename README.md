@@ -13,7 +13,7 @@ agent on receipts rather than on what it claims.
 failure found in the previous one's traces.
 
 📝 **Write-up:** [I denied 7 dangerous commands. My agent deleted the files
-anyway.](https://dev.to/wenyu_zhang_25d9fff2ebf3b/i-denied-7-dangerous-commands-my-agent-deleted-the-files-anyway-44f7)
+anyway.](https://dev.to/wenyu_zhang/i-denied-7-dangerous-commands-my-agent-deleted-the-files-anyway-44f7)
 — how the eval suite caught the agent routing around the command policy, and why
 only OS isolation actually stopped it.
 
