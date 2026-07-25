@@ -252,6 +252,40 @@ describe("run_command impl", () => {
     assert.match(result, /partial output/);
   });
 
+  it("caps huge FAILURE output so it can't overflow the context window", async () => {
+    // A verbose failing command (e.g. `node --test` on a large suite) used to
+    // return its full multi-MB stdout, blowing the model's context and crashing
+    // the run (see eval/tasks/p13-verbose-fail-overflow).
+    policyResult = { allowed: true, reason: "test: allowed" };
+    const err = /** @type {any} */ (new Error("command failed"));
+    err.stderr = "";
+    err.stdout = "X".repeat(5_000_000); // 5 MB
+    execResult = err;
+
+    const result = await impl({ command: "node", args: ["--test"] });
+    assert.ok(
+      result.length <= 21_000,
+      `failure output must be capped, was ${result.length}`,
+    );
+    assert.match(result, /Error running command/);
+    assert.match(result, /\[truncated/);
+  });
+
+  it("keeps the TAIL of failure output (where the error is)", async () => {
+    policyResult = { allowed: true, reason: "test: allowed" };
+    const err = /** @type {any} */ (new Error("failed"));
+    err.stderr = "";
+    err.stdout = "A".repeat(5_000_000) + "ASSERTION_FAILED_HERE";
+    execResult = err;
+
+    const result = await impl({ command: "node", args: ["--test"] });
+    assert.match(
+      result,
+      /ASSERTION_FAILED_HERE/,
+      "the tail (the actual error) must survive truncation",
+    );
+  });
+
   it("returns error when command is not found (no code)", async () => {
     policyResult = { allowed: true, reason: "test: allowed" };
     const err = /** @type {any} */ (new Error("spawn ENOENT"));

@@ -4,6 +4,24 @@ import { checkPolicy } from "./policy.js";
 
 const execFileAsync = promisify(execFile);
 
+// A single tool result must never be allowed to blow the model's context window.
+// `maxBuffer` bounds memory (10 MB); this bounds what we hand back to the model.
+const MAX_OUTPUT_CHARS = 20_000;
+
+/**
+ * Cap oversized command output. `keep`:
+ *   "head" — normal output (the start is what usually matters).
+ *   "tail" — error output: assertion failures, stack traces and the final
+ *            error line live at the END, so keep the tail, not the head.
+ */
+function capOutput(text, keep = "head") {
+  if (text.length <= MAX_OUTPUT_CHARS) return text;
+  const note = `[truncated: ${text.length} chars total, kept ${keep === "tail" ? "last" : "first"} ${MAX_OUTPUT_CHARS}]`;
+  return keep === "tail"
+    ? `${note}\n${text.slice(-MAX_OUTPUT_CHARS)}`
+    : `${text.slice(0, MAX_OUTPUT_CHARS)}\n${note}`;
+}
+
 export const schema = {
   type: "function",
   function: {
@@ -81,15 +99,7 @@ export const impl = async ({ command, args }) => {
       return `Command '${display}' completed successfully (no output).`;
     }
 
-    // Truncate if too long.
-    const MAX_CHARS = 20_000;
-    if (result.length > MAX_CHARS) {
-      result =
-        result.slice(0, MAX_CHARS) +
-        `\n[truncated: output was ${result.length} chars total]`;
-    }
-
-    return result;
+    return capOutput(result, "head");
   } catch (err) {
     if (err.killed && err.signal === "SIGTERM") {
       return `Error: command '${display}' timed out after 60 seconds.`;
@@ -98,11 +108,17 @@ export const impl = async ({ command, args }) => {
     if (err.code === "ENOENT") {
       return `Error: program '${command}' not found. Check the name and that it is installed.`;
     }
+    // A FAILED command's output was previously returned whole — a verbose
+    // failing command (e.g. `node --test` on a large suite) could return >10 MB
+    // and blow the model's context window, crashing the run. Cap it, keeping the
+    // tail where the actual error lives.
     const stderr = err.stderr || "";
     const stdout = err.stdout || "";
     let msg = `Error running command '${display}': ${err.message}`;
-    if (stderr) msg += `\nstderr: ${stderr}`;
-    if (stdout) msg += `\nstdout: ${stdout}`;
+    let out = "";
+    if (stderr) out += `stderr: ${stderr}`;
+    if (stdout) out += `${out ? "\n" : ""}stdout: ${stdout}`;
+    if (out) msg += `\n${capOutput(out, "tail")}`;
     return msg;
   }
 };
