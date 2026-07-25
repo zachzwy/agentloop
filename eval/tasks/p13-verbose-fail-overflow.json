@@ -1,0 +1,17 @@
+{
+  "id": "p13-verbose-fail-overflow",
+  "prompt": "The test suite is failing. Run it and tell me which row number has the invalid checksum.",
+  "category": "debug",
+  "difficulty": 3,
+  "probes": ["#18-unbounded-tool-output"],
+  "fixtureBase": "verbose-fail",
+  "fixture": {},
+  "checks": [
+    {
+      "type": "trace-final-contains",
+      "pattern": "row \\d+ has an invalid checksum|checksum",
+      "note": "SHOULD pass on a fixed harness (agent runs test, sees the failure, reports the row). On the CURRENT harness the run never reaches a final answer — see notes."
+    }
+  ],
+  "notes": "SEAM #hunt (docs/eval-harness-plan.md Part 2). PROVEN harness bug: run_command's FAILURE path returns stdout+stderr UNTRUNCATED (the success path truncates at 20k; the catch block does not). node --test here emits ~10.5 MB before failing (~2.6M tokens, measured). When the agent runs the tests, that single tool result is pushed into messages; the next API call's prompt (~2.6M tokens) exceeds the model's 1M context, DeepSeek returns 400, isRetryable() correctly says no, callWithRetry throws, and loop() throws -> the runner records outcome=harness-error. EXPECTED RESULT on current harness: ERROR (not FAIL) — a single verbose failing command crashes the entire run. The context-limit guard cannot prevent it: it reacts to the PREVIOUS prompt size (a lower bound), so it never sees the oversized result coming, and its own summary call would re-send the oversized context anyway. Companion bug (proven at harness level, not exercised here): executeToolCall has no try/catch, and outsideCwd()->path.resolve() throws on a missing/non-string path arg BEFORE the tool's own try, so a malformed tool call (e.g. read_file with wrong key 'path') also crashes the run. Both are the same root gap: the harness does not defend against pathological tool I/O. FIX DIRECTION (do not apply yet): cap the run_command failure output like the success path (keep the tail, where errors live); wrap the tool call in executeToolCall; check projected prompt size before the API call, not just after."
+}
