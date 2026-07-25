@@ -22,7 +22,7 @@
   },
   "scripts": {
     "format": "node node_modules/prettier/bin/prettier.cjs --write .",
-    "test": "node --experimental-test-module-mocks --test loop.test.js tools/*.test.js",
+    "test": "node --experimental-test-module-mocks --test loop.test.js tools/*.test.js utils/*.test.js",
     "eval": "./eval/sandbox-run.sh"
   },
   "dependencies": {
