@@ -222,3 +222,103 @@ guessed).
 
 Next build order: fixture repo + 9 probe task JSONs (coupled) → graders →
 `run-eval.js` + report.
+
+---
+
+# Part 2 — Generating failing tasks to improve the harness
+
+Part 1 built the runner and 9 probe tasks that now pass 9/9. A green board is a
+good regression baseline but has **stopped discovering** anything. Part 2 is the
+method for deliberately generating failures — this is the E1 (error analysis)
+work, and every fix graduates a red task into the green regression suite (which
+is how the original 9 were born).
+
+## The core principle
+
+**A task is only useful if it fails for a reason we can fix in the harness.**
+Everything else is a filter against that. Three failure classes:
+
+| Class | Example | Value |
+| ----- | ------- | ----- |
+| **Harness failure** | missing tool, bad error text, budget too small, truncation eats data | **Gold.** Fix it → agent improves. |
+| **Model failure** | model just isn't strong enough | Teaches nothing about the harness; easy to misdiagnose as a harness bug. |
+| **Fixture failure** | task is unfair/weird in a way no real user hits | Pure noise. |
+
+A suite full of class-2 failures *feels* productive and improves nothing. The
+design goal is therefore **not "hard tasks" but "tasks that fail at a seam we
+control."**
+
+**Cheap class-1 vs class-2 separator:** when a task fails, re-run *that one task*
+against a stronger model. Still fails → harness problem (fix it). Passes → model
+problem (park it). Two minutes; saves fixing the wrong thing.
+
+## Method: mine hypotheses, don't brainstorm "hard tasks"
+
+We already have a list of suspected weak points (`docs/future-work.md`, the tool
+set, the roadmap). Each known weakness converts **directly** into a task that
+exposes it — far more efficient than inventing difficulty.
+
+The loop, per task:
+
+```
+predict the failure mode (write it down FIRST)
+  → run → read the trace → categorize (class 1/2/3)
+  → fix the harness → re-run → task passes → it becomes a regression probe
+```
+
+Predicting first is what makes this error analysis rather than throwing tasks at
+the wall. Predicted right → we understand the harness. Predicted wrong → we
+learned something bigger than the task.
+
+## Candidate seams, strongest first
+
+Derived from what the harness actually is: 5 tools, **no edit tool**, **no search
+tool**, `read_file` truncates at 8k chars, `write_file` is whole-file overwrite,
+`MAX_ITER=20` with no no-progress detection.
+
+1. **Truncation × whole-file-write = silent data loss (likely a real bug).**
+   Ask the agent to change something near the END of a >8k-char file. `read_file`
+   returns the first 8k + a truncation notice; `write_file` overwrites wholesale.
+   Read-then-rewrite ⇒ **the back half of the file is destroyed.** Not "the agent
+   struggled" — a harness that eats user data. Highest-value single task; verify
+   the prediction in ~10 min. Likely fix: a range/offset read, or make write
+   refuse when it would shrink a file it only partially saw.
+2. **No search tool.** "Where is `formatDate` defined and who calls it?" across
+   the 67-file `large` fixture. With only `list_files`+`read_file`, the agent must
+   read everything → budget exhaustion or confident-wrong answer. Fix is a real
+   affordance (a grep/search tool) — H2 arriving for free.
+3. **No edit tool.** Any surgical change to a large file. The plan flags pi's
+   `edit` tool as "the hardest and most failure-prone of the four — great
+   error-analysis material." This is that material.
+4. **Error recovery.** A task whose obvious first move fails (a test that fails
+   for a subtle reason; a syntax error introduced mid-task). Does it recover or
+   spiral? One data point already exists (7 iterations probing Node internals
+   before trying `--help`).
+5. **Underspecification.** A genuinely ambiguous requirement. Headless has no user
+   to ask, so correct behavior is "state the assumption and proceed," NOT silently
+   guess. Tests judgment; fix is usually a prompt change.
+6. **Conflicting instructions.** `AGENTS.md` says one thing, the prompt another.
+   Tests precedence handling — nobody designs this until it bites.
+7. **Dirty / partially-done state.** Run against a tree where the work is already
+   half-complete. Tests idempotency and whether the agent checks before acting.
+
+## Calibration rules
+
+- **One failure mode per task.** Compound failures are undiagnosable — fix one,
+  learn nothing about the rest.
+- **Target ~50–70% suite pass rate.** 9/9 teaches nothing; 0/20 also teaches
+  nothing (can't isolate). Keep ~a third of the suite as ordinary baseline tasks
+  so "does the agent work" stays measurable alongside "where does it break."
+- **Grade two axes separately** (as p6 already does): *did it accomplish the
+  task* (will be red — the signal) and *did it report honestly* (should stay
+  green — degradation quality). An agent that fails and says so cleanly is a much
+  better harness than one that fails and claims success; separate axes stop a red
+  board from hiding that distinction.
+- **Measurements skip pass/fail** (e.g. p10) — just record the numbers.
+
+## Suggested first move
+
+Build seam #1 (truncation × whole-file-write) and run it to test the prediction.
+If correct, it's a genuine data-loss bug, not a difficulty knob — and it writes
+itself up. Then work down the list, ~10 new tasks, each with its predicted
+failure recorded before the run.
