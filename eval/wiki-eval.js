@@ -1,17 +1,18 @@
 #!/usr/bin/env node
 // @ts-check
-// Wiki-navigation testbed. Measures the value of the wiki by running each task
-// twice: AUGMENTED (the agent has wiki_search + wiki_read) vs BASELINE (no wiki
-// tools at all). The tasks ask for synthetic, project-specific facts the model
-// cannot know from training, so the baseline must fail — the delta is the wiki's
-// lift, measured on task success with receipts (Delta 1; see docs).
+// Wiki-navigation testbed.
 //
-//   node eval/wiki-eval.js                 # clean wiki, all tasks
-//   node eval/wiki-eval.js w1 w3           # only matching tasks
-//   WIKI_DIR=eval/fixtures/wiki-noisy node eval/wiki-eval.js   # a different wiki
+//   node eval/wiki-eval.js              # clean vs noisy (Delta 2 — ingest quality)
+//   node eval/wiki-eval.js --baseline   # also run no-wiki baseline (Delta 1)
+//   node eval/wiki-eval.js w1 w3        # only matching tasks
 //
-// Safe to run WITHOUT the sandbox: augmented tools are read-only over the wiki
-// dir; baseline has no tools. No run_command, no writes.
+// Delta 1 (wiki lift): augmented vs no-wiki baseline — is the wiki worth anything?
+// Delta 2 (ingest quality): the SAME tasks against a CLEAN wiki vs a NOISY one
+// (dup/stale/off-topic pages simulating messy auto-ingest). The gap is the cost of
+// bad ingest — the auto-ingest quality result. A per-task navigation breakdown
+// classifies noisy failures (read-stale / crowded-out / …).
+//
+// Safe without the sandbox: read-only wiki tools; baseline has no tools.
 import { readdir, readFile, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -22,10 +23,46 @@ import { gradeTask } from "./graders/index.js";
 
 const EVAL_ROOT = path.dirname(fileURLToPath(import.meta.url));
 const TASKS_DIR = path.join(EVAL_ROOT, "wiki-tasks");
-const WIKI_DIR = path.resolve(process.env.WIKI_DIR ?? path.join(EVAL_ROOT, "fixtures", "wiki-clean"));
+const WIKIS = {
+  clean: path.join(EVAL_ROOT, "fixtures", "wiki-clean"),
+  noisy: path.join(EVAL_ROOT, "fixtures", "wiki-noisy"),
+};
+// Instrumentation for the navigation failure taxonomy (noisy wiki).
+const STALE = new Set(["orion-runbook-draft", "oncall-2024", "retention-legacy", "promotion-old"]);
+const CORRECT = {
+  "w1-orion-canary": "deploy-orion",
+  "w2-oncall-escalation": "oncall-policy",
+  "w3-pii-retention": "data-retention",
+  "w4-staging-soak": "env-promotion",
+};
+const say = (s) => console.log("§ " + s); // marker so the report greps out of loop noise
 
-/** Run one task in one tool-mode against a clean temp cwd; return pass + trace. */
-async function runMode(task, toolset) {
+function navFromTrace(trace) {
+  const searches = [], reads = [];
+  for (const m of trace.messages ?? []) {
+    for (const tc of m.tool_calls ?? []) {
+      let a = {};
+      try { a = JSON.parse(tc.function.arguments); } catch {}
+      if (tc.function.name === "wiki_search") searches.push(a.query);
+      if (tc.function.name === "wiki_read") reads.push(a.pageId);
+    }
+  }
+  return { searches, reads };
+}
+
+/** Classify a noisy-wiki failure from the agent's navigation path. */
+function classify(task, nav) {
+  const correct = CORRECT[task.id];
+  const readStale = nav.reads.some((r) => STALE.has(r));
+  const readCorrect = correct ? nav.reads.includes(correct) : false;
+  if (readStale && !readCorrect) return "read-stale-only (wrong value)";
+  if (readStale && readCorrect) return "read-both → answered wrong";
+  if (correct && !readCorrect) return "crowded-out (never read the right page)";
+  return "had-correct-page-but-failed";
+}
+
+async function runOne(task, wikiDir, toolset) {
+  process.env.AGENTLOOP_WIKI_DIR = wikiDir;
   const cwd0 = process.cwd();
   const dir = await mkdtemp(path.join(tmpdir(), "wiki-"));
   let tracePath;
@@ -36,13 +73,15 @@ async function runMode(task, toolset) {
     process.chdir(cwd0);
   }
   const graded = await gradeTask(task, { fixtureDir: dir, tracePath });
+  const nav = navFromTrace(JSON.parse(await readFile(tracePath, "utf8")));
   await rm(dir, { recursive: true, force: true }).catch(() => {});
-  return graded.pass;
+  return { pass: graded.pass, nav };
 }
 
 async function main() {
-  process.env.AGENTLOOP_WIKI_DIR = WIKI_DIR;
-  const filters = process.argv.slice(2);
+  const args = process.argv.slice(2);
+  const withBaseline = args.includes("--baseline");
+  const filters = args.filter((a) => !a.startsWith("--"));
   const files = (await readdir(TASKS_DIR)).filter((f) => f.endsWith(".json")).sort();
 
   const rows = [];
@@ -50,25 +89,31 @@ async function main() {
     const task = JSON.parse(await readFile(path.join(TASKS_DIR, f), "utf8"));
     if (filters.length && !filters.some((x) => task.id.includes(x))) continue;
     process.stdout.write(`\n=== ${task.id} ===\n`);
-    const augmented = await runMode(task, wikiTools);
-    const baseline = await runMode(task, []);
-    rows.push({ id: task.id, augmented, baseline });
-    console.log(
-      `  augmented (wiki): ${augmented ? "PASS" : "FAIL"}    baseline (no wiki): ${baseline ? "PASS" : "FAIL"}`,
-    );
+
+    const clean = await runOne(task, WIKIS.clean, wikiTools);
+    const noisy = await runOne(task, WIKIS.noisy, wikiTools);
+    const baseline = withBaseline ? await runOne(task, WIKIS.clean, []) : null;
+
+    const row = { id: task.id, isFact: task.id in CORRECT, clean: clean.pass, noisy: noisy.pass, baseline: baseline?.pass };
+    if (!noisy.pass && row.isFact) row.why = classify(task, noisy.nav);
+    rows.push(row);
+
+    say(`${task.id}: clean=${clean.pass ? "PASS" : "FAIL"}  noisy=${noisy.pass ? "PASS" : "FAIL"}` +
+      (withBaseline ? `  baseline=${baseline.pass ? "PASS" : "FAIL"}` : "") +
+      (row.why ? `   [noisy failure: ${row.why}]` : ""));
+    if (!noisy.pass && row.isFact) say(`    noisy nav → read: ${noisy.nav.reads.map((r) => (STALE.has(r) ? r + "*STALE" : r)).join(", ") || "(none)"}`);
   }
 
-  const n = rows.length;
-  const aug = rows.filter((r) => r.augmented).length;
-  const base = rows.filter((r) => r.baseline).length;
-  const pts = n ? Math.round(((aug - base) / n) * 100) : 0;
-  console.log(`\n${"=".repeat(48)}`);
-  console.log(`wiki: ${path.basename(WIKI_DIR)}   ·   ${n} tasks`);
-  console.log(`  augmented (wiki tools): ${aug}/${n}`);
-  console.log(`  baseline  (no wiki)   : ${base}/${n}`);
-  console.log(`  DELTA — wiki lift     : ${aug - base}/${n}   (+${pts} pts)`);
-  if (base === n) console.log("\n  ⚠ baseline passed everything — tasks are answerable WITHOUT the wiki; make the facts more synthetic.");
-  if (aug === base) console.log("\n  ⚠ no lift — the wiki isn't helping; check search/read or the tasks.");
+  const facts = rows.filter((r) => r.isFact);
+  const n = facts.length;
+  const c = facts.filter((r) => r.clean).length;
+  const z = facts.filter((r) => r.noisy).length;
+  say("");
+  say("=".repeat(46));
+  if (withBaseline) say(`Delta 1 (wiki lift): baseline ${facts.filter((r) => r.baseline).length}/${n} → clean ${c}/${n}`);
+  say(`Delta 2 (ingest quality): clean ${c}/${n} → noisy ${z}/${n}   [degradation: ${c - z}/${n}]`);
+  const w5 = rows.find((r) => r.id === "w5-not-in-wiki");
+  if (w5) say(`graceful "not in wiki" (w5): clean=${w5.clean ? "PASS" : "FAIL"}  noisy=${w5.noisy ? "PASS" : "FAIL"}`);
 }
 
 main();

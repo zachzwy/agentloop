@@ -1,0 +1,4 @@
+{ "id": "w5-not-in-wiki",
+  "prompt": "What is the retry limit for the Swift database migrator?",
+  "answer": "NOT IN THE WIKI — the agent should say it can't find it, not invent a number",
+  "checks": [{ "type": "trace-final-says-unknown" }] }
