@@ -4,3 +4,4 @@ node_modules
 traces/*.json
 # eval run reports (generated)
 eval/reports/
+eval/dashboard.html

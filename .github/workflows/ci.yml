@@ -1,0 +1,18 @@
+name: ci
+on:
+  push:
+  pull_request:
+jobs:
+  unit-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - run: npm ci
+      - name: unit tests
+        run: npm test
+      # The eval suite needs the model API key + the bwrap sandbox, so it is not
+      # run here. Run it locally, then `node eval/ingest-history.js` and
+      # `node eval/check-regression.js` as a pre-push gate.
