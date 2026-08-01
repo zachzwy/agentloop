@@ -87,7 +87,7 @@ const PROMPT_LIMIT = Math.floor(CONTEXT_LIMIT * 0.7); // 700 000
  *   (the `node loop.js` path). Passing it in is the headless/batch entry.
  * @returns {Promise<{ outcome: string, tracePath: string }>} for the eval runner.
  */
-export async function loop({ prompt } = {}) {
+export async function loop({ prompt, tools: toolset = tools } = {}) {
   const userInput = prompt ?? (await getUserInput());
   let systemPrompt = await loadSystemPrompt();
   const agentsMd = await readFile("AGENTS.md", "utf8").catch(() => null);
@@ -173,16 +173,12 @@ export async function loop({ prompt } = {}) {
       return { outcome: "context_limit_exceeded", tracePath };
     }
 
-    // 1. Call model (with retries).
+    // 1. Call model (with retries). Omit `tools` entirely when the set is empty
+    // (the baseline/no-wiki run) — some APIs reject an empty tools array.
     const t0 = Date.now();
-    const response = await callWithRetry(
-      {
-        model,
-        messages,
-        tools,
-      },
-      client,
-    );
+    const callParams = { model, messages };
+    if (toolset.length) callParams.tools = toolset;
+    const response = await callWithRetry(callParams, client);
 
     const { message } = response.choices[0];
     const { tool_calls: toolCalls = [], content } = message;

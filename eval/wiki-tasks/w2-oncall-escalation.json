@@ -1,0 +1,6 @@
+{ "id": "w2-oncall-escalation",
+  "prompt": "If an on-call page is not acknowledged, after how long does it escalate, and to which team?",
+  "answer": "20 minutes, to Kestrel",
+  "checks": [
+    { "type": "trace-final-contains", "pattern": "20\\s*min" },
+    { "type": "trace-final-contains", "pattern": "kestrel" } ] }

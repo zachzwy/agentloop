@@ -1,0 +1,4 @@
+{ "id": "w4-staging-soak",
+  "prompt": "What is the minimum staging soak time before a promotion to prod is allowed?",
+  "answer": "2 hours",
+  "checks": [{ "type": "trace-final-contains", "pattern": "2\\s*hours?" }] }
