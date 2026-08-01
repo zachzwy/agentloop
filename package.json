@@ -30,6 +30,7 @@
     "openai": "^6.47.0"
   },
   "devDependencies": {
+    "gpt-tokenizer": "^3.4.0",
     "prettier": "^3.9.5"
   }
 }
