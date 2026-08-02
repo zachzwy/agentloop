@@ -29,7 +29,7 @@ import { gradeTask } from "./graders/index.js";
 const EVAL_ROOT = path.dirname(fileURLToPath(import.meta.url));
 const TASKS_DIR = path.join(EVAL_ROOT, "wiki-tasks");
 const FIX = (n) => path.join(EVAL_ROOT, "fixtures", n);
-const WIKIS = { clean: FIX("wiki-clean"), noisy: FIX("wiki-noisy"), uncued: FIX("wiki-uncued"), outranked: FIX("wiki-outranked") };
+const WIKIS = { clean: FIX("wiki-clean"), noisy: FIX("wiki-noisy"), uncued: FIX("wiki-uncued"), outranked: FIX("wiki-outranked"), "ingest-naive": FIX("wiki-ingest-naive"), "ingest-reconcile": FIX("wiki-ingest-reconcile") };
 const say = (s) => console.log("§ " + s);
 
 async function runOnce(task, wikiDir, toolset) {

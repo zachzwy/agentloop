@@ -1,0 +1,28 @@
+[
+  { "id": "orion-2025q1", "topic": "orion-canary", "ts": "2025-03-01", "title": "Deploying the Orion service",
+    "body": "Orion deploys with `orion-ctl push --ring canary`. The Orion canary ring holds for **30 minutes** before auto-promoting to stable." },
+  { "id": "orion-2026q2", "topic": "orion-canary", "ts": "2026-06-01", "title": "Deploying the Orion service",
+    "body": "Orion deploys with `orion-ctl push --ring canary`. The Orion canary ring holds for **45 minutes** before auto-promoting to the stable ring." },
+  { "id": "orion-2026q2-copy", "topic": "orion-canary", "ts": "2026-06-05", "title": "Deploying the Orion service",
+    "body": "Orion deploys with `orion-ctl push --ring canary`. The Orion canary ring holds for **45 minutes** before auto-promoting to the stable ring." },
+
+  { "id": "oncall-2024", "topic": "oncall-escalation", "ts": "2024-11-01", "title": "On-call policy",
+    "body": "An unacknowledged on-call page escalates after **15 minutes** to the **Hawk** team." },
+  { "id": "oncall-2026", "topic": "oncall-escalation", "ts": "2026-05-01", "title": "On-call policy",
+    "body": "An unacknowledged on-call page escalates after **20 minutes** to the **Kestrel** team. Rotations are 6 days." },
+
+  { "id": "pii-2025", "topic": "pii-retention", "ts": "2025-01-01", "title": "Data retention",
+    "body": "PII-tagged telemetry rows are purged after **30 days** by the nightly job." },
+  { "id": "pii-2026", "topic": "pii-retention", "ts": "2026-04-01", "title": "Data retention",
+    "body": "Raw telemetry is retained 90 days. PII-tagged rows are purged after **14 days** by the nightly Nightjar job." },
+
+  { "id": "soak-2025", "topic": "staging-soak", "ts": "2025-08-01", "title": "Environment promotion",
+    "body": "Order is preview -> staging -> prod. Staging soak time is **1 hour** minimum before a prod promotion." },
+  { "id": "soak-2026", "topic": "staging-soak", "ts": "2026-07-01", "title": "Environment promotion",
+    "body": "Order is preview -> staging -> prod. Staging soak time is **2 hours** minimum before a prod promotion, plus release-captain sign-off." },
+
+  { "id": "build-2026", "topic": "build-pipeline", "ts": "2026-02-01", "title": "Build pipeline",
+    "body": "CI runs on every push. The merge-gate needs two green reviews and a passing contract-test stage." },
+  { "id": "secrets-2026", "topic": "secrets-rotation", "ts": "2026-03-01", "title": "Secrets rotation",
+    "body": "Service secrets rotate every 30 days via the Vulture rotator. A secret older than 45 days blocks deploys." }
+]

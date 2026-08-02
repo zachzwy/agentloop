@@ -5,3 +5,4 @@ traces/*.json
 # eval run reports (generated)
 eval/reports/
 eval/dashboard.html
+eval/fixtures/wiki-ingest-*

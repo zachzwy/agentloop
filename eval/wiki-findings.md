@@ -65,3 +65,25 @@ of the system under test** (see docs/failure-taxonomy §5).
   detection/removal, and recency/authority in ranking.
 - The metric to use in production is **confident clean-answer rate**, not
   "the right value appears somewhere."
+
+## Delta 3 — auto-ingest: reconciliation is the whole game
+
+Fed the same facts (raw source records with topic + timestamp, incl. stale +
+duplicate + current versions in `eval/fixtures/wiki-sources/sources.json`) through
+a mini auto-ingest (`eval/wiki-ingest.js`) two ways, then graded the resulting
+wiki (3 runs/task, confident clean-answer rate):
+
+| ingest mode | what it does | clean-answer rate |
+| ----------- | ------------ | ----------------- |
+| **naive** (append every source) | 11 sources → 11 pages; stale + dup versions all land, contradicting | **0%** |
+| **reconcile** (group by topic, keep latest ts) | 11 sources → 6 pages; supersede stale, dedup | **100%** |
+| clean (hand-authored reference) | — | 100% |
+
+Append-everything ingest produces a *useless* wiki; the dedup + supersede-stale
+reconciliation restores it to the hand-authored baseline. **The ADD/UPDATE/dedup
+decision is what makes auto-ingest work** — measured, not asserted.
+
+Caveat: the reconciler matches same-topic sources by a `topic` tag (deterministic).
+The hard part in production is *detecting* that two sources are about the same topic
+(Mem0/A-MEM use an LLM/embedding). The methodology — build ingest, grade with
+clean-answer rate, prove reconciliation matters — transfers unchanged.
