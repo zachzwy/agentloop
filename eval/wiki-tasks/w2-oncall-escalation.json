@@ -1,6 +1,7 @@
 { "id": "w2-oncall-escalation",
   "prompt": "If an on-call page is not acknowledged, after how long does it escalate, and to which team?",
-  "answer": "20 minutes, to Kestrel",
+  "answer": "20 minutes, Kestrel (stale wrong: 15 min / Hawk)",
   "checks": [
     { "type": "trace-final-contains", "pattern": "20\\s*min" },
-    { "type": "trace-final-contains", "pattern": "kestrel" } ] }
+    { "type": "trace-final-contains", "pattern": "kestrel" },
+    { "type": "trace-final-not-matches", "pattern": "15\\s*min|hawk", "note": "must not surface the stale 15-min / Hawk value" } ] }

@@ -1,4 +1,6 @@
 { "id": "w3-pii-retention",
   "prompt": "How long are PII-tagged telemetry rows kept before they are purged?",
-  "answer": "14 days",
-  "checks": [{ "type": "trace-final-contains", "pattern": "14\\s*days" }] }
+  "answer": "14 days (stale wrong: 30 days)",
+  "checks": [
+    { "type": "trace-final-contains", "pattern": "14\\s*days" },
+    { "type": "trace-final-not-matches", "pattern": "30\\s*days", "note": "must not surface the stale 30-day value" } ] }

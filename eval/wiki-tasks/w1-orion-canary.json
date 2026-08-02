@@ -1,4 +1,6 @@
 { "id": "w1-orion-canary",
   "prompt": "When deploying the Orion service, how long does the canary ring hold before it auto-promotes?",
-  "answer": "45 minutes",
-  "checks": [{ "type": "trace-final-contains", "pattern": "45\\s*min" }] }
+  "answer": "45 minutes (stale wrong value: 30)",
+  "checks": [
+    { "type": "trace-final-contains", "pattern": "45\\s*min" },
+    { "type": "trace-final-not-matches", "pattern": "30\\s*min", "note": "must not surface the stale 30-min value" } ] }
