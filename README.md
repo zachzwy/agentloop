@@ -12,10 +12,18 @@ agent on receipts rather than on what it claims.
 **Status: complete (all 6 build steps).** Built in phases, each one driven by a
 failure found in the previous one's traces.
 
-📝 **Write-up:** [I denied 7 dangerous commands. My agent deleted the files
-anyway.](https://dev.to/wenyu_zhang/i-denied-7-dangerous-commands-my-agent-deleted-the-files-anyway-44f7)
-— how the eval suite caught the agent routing around the command policy, and why
-only OS isolation actually stopped it.
+📝 **Write-ups**
+
+- [I denied 7 dangerous commands. My agent deleted the files
+  anyway.](https://dev.to/wenyu_zhang/i-denied-7-dangerous-commands-my-agent-deleted-the-files-anyway-44f7)
+  — how the eval suite caught the agent routing around the command policy, and why
+  only OS isolation actually stopped it.
+- [I filled my agent's wiki with contradictions. It never gave a wrong
+  answer.](https://dev.to/wenyu_zhang/i-filled-my-agents-wiki-with-contradictions-it-never-gave-a-wrong-answer-2ple)
+  — measuring what bad knowledge ingestion actually costs: not hallucination, but
+  the collapse of clean answers (100% → 8% → 0%). Built with
+  [`eval/wiki-eval.js`](eval/wiki-eval.js); results in
+  [`eval/wiki-findings.md`](eval/wiki-findings.md).
 
 ## Why this repo might be interesting
 
