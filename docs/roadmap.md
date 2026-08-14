@@ -50,18 +50,42 @@ many files, to defeat the 8k truncation) and outside input. The candidate
 "before/after graph" the project set out to produce may come from a different
 lever than memory.
 
+## Update — 2026-08-13
+
+Since the checkpoint above, the work moved from the harness to **knowledge quality
+for agents**, using this repo as the testbed:
+
+- **Wiki-navigation testbed** (`eval/wiki-eval.js`, `eval/wiki-tasks/`) — an agent
+  with `wiki_search` + `wiki_read` answering questions whose answers exist only in
+  a wiki of synthetic facts. Baseline (no wiki) 0/4 → augmented 4/4, so the tasks
+  are honest and the lift is attributable.
+- **Ingest-quality degradation curve** — the same questions against wikis of
+  decreasing quality, as a rate: clean **100%** → stale contradiction present
+  **8%** → stale contradiction outranking the correct page **0%**. The agent never
+  answered *wrong*; it detected the conflict and hedged, which destroys the value
+  of a wiki without ever producing a falsehood. Written up in
+  [`eval/wiki-findings.md`](../eval/wiki-findings.md).
+- **Mini auto-ingest** (`eval/wiki-ingest.js`) — the same source records ingested
+  naively (append everything) vs. reconciled (dedup + supersede stale): **0% → 100%**
+  clean-answer rate. The ADD/UPDATE/dedup decision *is* what makes ingestion work.
+- **`eval/tokens.js`** — tokenization measured on this repo's own traces
+  (prose ≈ 4.4 ch/token, hex ≈ 1.7, indentation ≈ 118), reproducing the p13 overflow.
+
+**Methodological finding, and the most reusable one:** a lenient grader — "does the
+right value appear anywhere?" — reported **100% for every condition** and hid the
+entire collapse, because a hedge contains the right value too. Only grading for a
+*clean* answer (right value present AND stale value absent) exposed it. The metric
+chosen decides whether the problem is visible at all.
+
 ## Next steps (technical, ordered)
 
-1. **Write the failure-taxonomy doc** — consolidate the 3 fixed bugs + the
-   retired/strength findings (p12 underspecification, #4 error-recovery) into one
-   categorized artifact. The analysis is done; this is the write-up.
-2. **CI + a quality-over-time view** — wire `summary.json` into a regression gate
-   and a simple trend graph, so a fix that regresses is caught automatically.
-3. **Fundamentals slice** — tokenization first (p13's 5.4M-token overflow is the
-   hook), then attention/KV-cache and sampling.
-4. **Resolve the context/memory question with a harder stress test**, then decide
-   whether compaction is worth building or the improvement graph comes from
-   robustness/efficiency levers already in hand.
-5. **The `edit`/`replace` tool** — the fuller structural fix behind the p11 guard
-   (never rewrites whole-file → no clobber, no false positives) and the natural
-   pi-comparison exercise.
+1. **`ask()`-side eval for a real corpus** — the degradation curve is measured on
+   synthetic fixtures. The same metric applied to a real wiki is the open work.
+2. **Semantic contradiction detection.** The static conflict detector compares
+   numeric claims, so it is inert on conceptual corpora that argue rather than
+   specify. Detecting *semantic* contradictions needs a judge, not a pattern —
+   the same conclusion the grading work reached.
+3. **Resolve the context/memory question with a harder stress test** (large *files*,
+   not just many files, to defeat the 8k truncation).
+4. **The `edit`/`replace` tool** — the fuller structural fix behind the p11 clobber
+   guard (never rewrites whole-file → no clobber, no false positives).
