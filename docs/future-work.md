@@ -102,3 +102,84 @@ literal list. Lower priority than isolation (Layer 3 is the real boundary).
 a writable (host-isolated) tmpfs. Harmless (no host effect) but surprising.
 `--ro-bind /etc /etc` would close it — verify DNS/SSL still work (resolv.conf,
 ca-certs) after.
+
+---
+
+# From the pi comparison (2026-08-14)
+
+Five items surfaced by reading [earendil-works/pi](https://github.com/earendil-works/pi)
+against this harness. Full analysis in [`pi-comparison.md`](pi-comparison.md).
+Ordered by value per effort. **Not started.**
+
+## 1. `offset` / `limit` on `read_file` — highest priority
+
+`read_file` truncates at 8,000 chars and offers **no way to read the rest**. pi's
+`read` takes `offset` and `limit`, and its description tells the model *"when you need
+the full file, continue with offset until complete."*
+
+This is the **cause** behind two findings already recorded here:
+
+- the agent routed around the truncation by calling `cat` through the shell (wiki
+  testbed) — it had no legitimate path to the remainder, so it found another one;
+- p11's data loss — the only way to modify a large file was read-visible-8k, then
+  write the whole file back.
+
+The clobber guard (shipped, 2/10 → 0/10) treats the symptom. A completable read
+removes the reason either behaviour occurs. ~15 lines.
+
+Do at the same time: **report truncation in lines, not chars.** Current notice is
+`[truncated: file is 42191 chars total]`, which the model cannot act on. pi's is
+`[Truncated: showing 340 of 5,120 lines]`. Consider matching pi's dual cap — 2,000
+lines *or* 50 KB, whichever hits first — since code is line-structured.
+
+*Measurement when done:* re-run p11 with the guard **disabled**. If a completable read
+alone drops the data-loss rate from 2/10 toward zero, that confirms the tool design was
+the cause and the guard is belt-and-braces.
+
+## 2. Handle `finish_reason: "length"`
+
+pi refuses **every** tool call in an assistant message whose stop reason was `length`,
+on the grounds that truncated output means possibly-truncated arguments — and a half-
+written JSON argument sometimes still parses.
+
+`loop.js` records `finish_reason` in three places and branches on it in none. Same
+family as the p13 overflow crash and the p11 clobber, both already found here.
+
+*Needs:* a probe that forces a `length` stop mid-tool-call and asserts the call is
+refused rather than executed.
+
+## 3. `tool-call-matches` grader check
+
+pi's graders assert on the **trajectory** — a tool call's name, arguments, status *and*
+return value — not only the final answer. This harness grades the final message and
+filesystem receipts, so it can confirm a task succeeded but not that the agent got
+there acceptably.
+
+Three of the most interesting findings here were spotted by reading traces **by hand**
+and are all mechanically assertable:
+
+- p6's policy bypass (`node --test` on a just-written file)
+- p11's clobber path (a `write_file` that shrank a large file)
+- the `cat`-instead-of-`read_file` routing in the wiki testbed
+
+## 4. `edit` / `replace` tool
+
+Already noted under the p11 entry above as the fuller structural fix. pi's is 443 lines
+and handles: multiple disjoint edits per call, each `oldText` matched against the
+**original** file (so edits cannot shift each other's offsets), uniqueness enforced with
+a steering error that names the occurrence count, line-ending detection and restoration,
+BOM stripping, and diff/patch generation.
+
+Now **second** to item 1 — a completable `read` is the cheaper half of the same fix.
+
+*Measurement when done:* head-to-head against the clobber guard on p11.
+
+## 5. `killProcessTree` on `run_command` timeout
+
+`execFile`'s timeout kills the process this harness spawned; anything *that* process
+spawned survives — an `npm test` that forks node, a dev server, a watcher. In an
+unattended batch those leak across tasks and can hold ports or CPU for the rest of the
+run.
+
+pi uses `killProcessTree`. Small fix, real bug, and it only shows up in exactly the
+unattended setting this harness is built for.
