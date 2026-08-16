@@ -307,3 +307,112 @@ fix.
 3. `tool-call-matches` grader check (session 2)
 4. `edit` tool, measured against the clobber guard on p11
 5. `killProcessTree` on `run_command` timeout
+
+---
+
+# Session 4 — eval harness vs eval harness
+
+The most relevant comparison of the four, since evaluation is the specialisation this
+project is aiming at. pi's `packages/evals` (~1,280 lines, built on
+[`vitest-evals`](https://github.com/getsentry/vitest-evals)) against `eval/` here.
+
+## Shape
+
+| | pi | agentloop |
+| --- | --- | --- |
+| foundation | `vitest-evals` + vitest | hand-rolled, no deps |
+| unit of a test | a `describeEval(...)` block in TypeScript | a task **JSON file** |
+| isolation | `mkdtemp` → separate `workspace/` + `agent/` + `sessions/` dirs | `mkdtemp` → `cp -r` fixture, `git init` baseline |
+| artifacts | session JSONL attached per run | `traces/*.json` copied into the report |
+| run index | `runs.jsonl` | `history.jsonl` |
+| OS sandbox | none | bubblewrap / Docker |
+| model pinned in output | yes | yes |
+
+Tests-as-code vs tests-as-data is the first real fork. pi's TypeScript blocks can
+express arbitrary setup and assertions; agentloop's JSON tasks are declarative, so they
+can be enumerated, filtered, tagged by `probes`, and rolled up by learning — but can
+only express the check types the grader implements.
+
+## The one that matters: pairing vs repeating
+
+This is the finding of the session, and it cuts both ways.
+
+**pi pairs.** Its summary is built on `ObservationPair` — the *same task* run under a
+baseline and a candidate configuration, then `baselineWins` / `candidateWins` / `ties`
+counted per task and a `lift` reported as the difference in pass rate. Task difficulty
+is controlled for by construction.
+
+**agentloop repeats.** `--runs N` executes the same task and configuration N times and
+reports a *rate*, because these systems are stochastic and a single run is a coin flip
+(the p11 lesson: 2/10 data loss would have been invisible at N=1).
+
+**Neither does both, and both are necessary.**
+
+- Pairing without repeating: a task that flips once can't be distinguished from noise —
+  exactly the mistake p11 was built to prevent.
+- Repeating without pairing: two aggregate rates get compared, discarding which
+  *specific* tasks moved, which is where the diagnosis lives.
+
+Combining them is strictly better than either: run each task under both conditions,
+N times each, and count per-task wins/losses across repeats. That yields a paired,
+repeated design — and at that point a sign test or McNemar's test is available, which
+neither harness currently supports. **pi already has the win/loss/tie bookkeeping and
+computes no statistic on it; agentloop has the repeats and no pairing.**
+
+Also: pi carries `totalTokens` and `totalMs` through the same paired machinery, so cost
+and latency get lift numbers alongside correctness. Here tokens are recorded per row but
+never differenced across conditions.
+
+## Grading
+
+| | pi | agentloop |
+| --- | --- | --- |
+| mechanism | vitest `expect(...)` **plus** `createJudge(...)` | declarative check types in `graders/index.js` |
+| judges | **deterministic** multi-criteria scorers returning `score` + `rationale` | equivalent: per-check `pass` + `reason` |
+| trajectory | asserts on tool call name / arguments / status / result | final answer + filesystem only *(backlog item 3)* |
+| hidden tests | none | **tests copied in after the agent finishes** |
+| LLM-as-judge | not used | not used |
+
+Two notes. First, `createJudge` sounding like an LLM judge and not being one is worth
+remembering — a mature harness still grades its agent with code. Second, **hidden tests
+appear to be an agentloop-only idea**: `graders/hidden/*.test.js` are copied into the
+fixture *after* the agent stops, so the agent cannot read, satisfy, or edit the thing
+that will judge it. pi's assertions are visible in the eval file the agent never sees,
+which achieves a similar end differently, but the hidden-test pattern generalises to any
+task where the agent has filesystem access.
+
+## Outcome bookkeeping — pi is more careful
+
+pi: `scored | unscored | skipped | pending | errored`, and when a pair can't be compared
+it records **why**: `missing-observation`, `duplicate-observation`, `harness-error`,
+`missing-score`, `unscorable-outcome`.
+
+agentloop: `pass | fail | error`.
+
+That taxonomy matters at scale. "12/12 passed" and "12/12 passed, 3 pairs discarded as
+unscorable" are different claims, and only the second is honest. Worth adopting — it is
+bookkeeping, not sophistication.
+
+## Where agentloop is ahead
+
+- **Cross-run regression.** pi's baseline/candidate comparison happens *within a single
+  invocation*. There is no history file, no previous-run comparison, no gate. agentloop
+  has `history.jsonl`, `ingest-history.js`, `check-regression.js` and a dashboard, so a
+  fix that regresses next month is caught. pi can answer "is B better than A right now";
+  it cannot answer "did we get worse since July".
+- **OS sandbox.** Evals here run under bubblewrap; pi's run in temp directories on the
+  host.
+- **Hidden tests** (above).
+- **Tagging by learning.** Every task carries `probes`, and the report rolls up
+  pass-rate per learning — so a regression names the lesson it broke. pi has no
+  equivalent grouping.
+
+## Adopt, in order
+
+1. **Paired + repeated design.** Keep `--runs`; add per-task pairing across conditions
+   and report wins/losses/ties. This is the single biggest methodological upgrade
+   available, and half of it already exists on each side.
+2. **Discard bookkeeping.** Adopt pi's outcome taxonomy and record why a comparison was
+   dropped.
+3. **Cost and latency as paired metrics**, not just per-row numbers.
+4. Trajectory assertions — already backlog item 3.
