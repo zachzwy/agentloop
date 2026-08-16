@@ -208,3 +208,102 @@ the same conclusion reached here from measurement in write-up #1. No change.
 4. Open question for the write-up: pi refuses subagents, to-do lists and plan mode
    while shipping compaction and sessions. That is a claim about which context
    problems are real — and it is testable here.
+
+---
+
+# Session 3 — tool-by-tool, at code level
+
+## `read` vs `read_file` — the biggest gap, and the root of two bugs here
+
+| | pi `read` (358 lines) | agentloop `read_file` (62) |
+| --- | --- | --- |
+| limit | **2,000 lines OR 50 KB**, whichever hits first | 8,000 chars |
+| paging | **`offset` + `limit` params** | none |
+| truncation notice | `[Truncated: showing 340 of 5,120 lines]` | `[truncated: file is 42191 chars total]` |
+| how to get the rest | *"Use offset/limit for large files. When you need the full file, continue with offset until complete."* — in the tool description | **no mechanism** |
+| pathological line | tells the model the exact recovery command: `sed -n '5p' file \| head -c 65536` | none |
+| images | read as attachments | no |
+| path confinement | **none** | rejects outside cwd |
+| secret denylist | **none** | `.env*`, `env.fixture` |
+
+**This single design difference explains two findings from this project.** agentloop
+truncates at 8k with no way to read further, so:
+
+- the agent routed around it by calling `cat` through the shell (measured in the wiki
+  testbed), defeating a context limit that was carefully designed; and
+- p11's data loss happened because the only way to change a large file was to read the
+  visible 8k and write the whole file back.
+
+pi has neither problem, and not because of a guard — because **the tool is completable**.
+`offset`/`limit` plus "continue until complete" means the agent has a legitimate path to
+the whole file, so it never needs a workaround, and never has to rewrite what it hasn't
+seen. The clobber guard here is a fix for a problem the tool's design created.
+
+Also worth noting: the truncation notice reports **lines of lines**, not chars. Code is
+line-structured; "42,191 chars total" tells the model nothing it can act on.
+
+## `bash` vs `run_command` — the philosophical divergence, plus one real gap
+
+| | pi `bash` | agentloop `run_command` |
+| --- | --- | --- |
+| interface | **shell command string** | `command` + `args[]`, `execFile`, **no shell** |
+| allowlist | none | deny-by-default policy |
+| timeout | optional, **no default**, capped at a max | **60s default** |
+| output cap | accumulator, head/tail aware | 20k chars (head on success, tail on failure) |
+| process cleanup | **`killProcessTree`** | `execFile` timeout — kills the direct child only |
+
+The first two rows are the position argued in write-up #1, and nothing here changes:
+pi delegates containment to the sandbox, agentloop layers guardrails and treats
+isolation as the real boundary. Both hold their ground.
+
+**But `killProcessTree` is a genuine gap.** A timeout in agentloop kills the process it
+spawned; anything *that* process spawned (a `npm test` that forks node, a dev server)
+survives. In an unattended batch, that leaks processes across tasks. Worth fixing.
+
+## `write` vs `write_file`
+
+| | pi `write` | agentloop `write_file` |
+| --- | --- | --- |
+| parent dirs | created recursively | created recursively |
+| concurrency | **file mutation queue** serialises writes to the same path | none (tool calls run sequentially) |
+| overwrite protection | **none** — but `edit` exists, so whole-file writes are rare | **clobber guard**: refuses a write that drops the tail of a large file |
+| guidance | *"Use write only for new files or complete rewrites"* | schema description only |
+
+Two different answers to the same risk. pi makes whole-file overwrite *unattractive* by
+providing a better tool and saying so in one line of prompt. agentloop makes the
+dangerous case *impossible* with a runtime check. The guard is more robust; the
+guideline is cheaper and addresses cause rather than symptom.
+
+## `ls` vs `list_files`
+
+Near-identical (`readdir` + type markers). pi's is 230 lines mostly for rendering and
+gitignore awareness. No meaningful behavioural difference — and notably `ls` is **not
+in pi's default tool set**, because `bash` already covers it.
+
+## `edit` — agentloop has no equivalent
+
+pi's 443 lines handle: multiple disjoint edits per call, each `oldText` matched against
+the **original** file (not incrementally, so edits can't shift each other's offsets),
+uniqueness enforced with a steering error naming the occurrence count, line-ending
+detection and restoration, BOM stripping, and diff/patch generation.
+
+## The thing this session actually changes
+
+The queued item was *"implement pi's edit semantics and re-run p11."* That is now the
+**second** priority. The first is **`offset`/`limit` on `read_file`**, because:
+
+- it is ~15 lines,
+- it removes the reason the agent reaches for `cat`,
+- it removes the reason a large-file edit ever rewrites unseen content, and
+- it addresses the *cause* that the clobber guard currently treats as a symptom.
+
+`edit` is still worth building, but a completable `read` is the cheaper half of the same
+fix.
+
+## Revised backlog
+
+1. `offset` / `limit` on `read_file`, and a line-based truncation notice
+2. `finish_reason: "length"` handling (session 1)
+3. `tool-call-matches` grader check (session 2)
+4. `edit` tool, measured against the clobber guard on p11
+5. `killProcessTree` on `run_command` timeout
