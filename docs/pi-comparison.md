@@ -17,7 +17,8 @@ for this project. As of now:
 | | pi | agentloop |
 | --- | --- | --- |
 | packages | 10 | 1 |
-| tools | 8 (read, write, edit, bash, ls, grep, find, truncate) | 5 |
+| tools shipped | 8 (read, write, edit, bash, ls, grep, find, truncate) | 5 |
+| tools **active by default** | **4** — `[read, bash, edit, write]`, unchanged | 5 |
 | tool source | 2,861 lines | 856 lines |
 | agent core | ~12,600 lines | ~300 (`loop.js`) |
 | iteration cap | **none** (`while (true)`) | `MAX_ITER = 20` |
@@ -134,8 +135,11 @@ were, rather than trusting the counts, reversed the conclusion. (Sixth instance 
 this project of a measurement being confidently wrong until interrogated; the rule
 keeps earning itself.)
 
-**This is the real finding of the comparison so far.** pi doubled its packages and
-its tool count while refusing every additional *category* of capability. Growth went
+**This is the real finding of the comparison so far.** pi grew its packages while
+refusing every additional *category* of capability — and its **default tool set never
+moved**: `sdk.ts` still resolves to `["read", "bash", "edit", "write"]`, with
+ls/grep/find/truncate opt-in. The default context surface an ordinary session puts in
+front of the model is exactly what it always was. Growth went
 into depth — a 443-line edit tool, compaction, session branching, an extension
 system, an eval suite — not into scope. "Minimal" turned out to mean *narrow*, not
 *small*, and only the narrowness was load-bearing.
