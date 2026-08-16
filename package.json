@@ -18,7 +18,7 @@
   "type": "module",
   "main": "loop.js",
   "engines": {
-    "node": ">=20"
+    "node": ">=24"
   },
   "scripts": {
     "format": "node node_modules/prettier/bin/prettier.cjs --write .",
