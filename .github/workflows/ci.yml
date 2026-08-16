@@ -9,7 +9,12 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          # 24, not 20: loop.test.js mocks "openai" via mock.module, and the
+          # test runner only synthesizes exports for an ESM-resolved target
+          # (openai ships index.mjs) on Node >=24. On 20/22/23 the mock has no
+          # exports and `import OpenAI from "openai"` in loop.js dies at
+          # instantiate time, taking all of loop.test.js down with it.
+          node-version: "24"
       - run: npm ci
       - name: unit tests
         run: npm test
